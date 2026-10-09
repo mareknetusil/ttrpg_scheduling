@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["macros"] }
+minijinja = "3.0.0"
 tokio = { version = "1.53.2", features = ["full"] }

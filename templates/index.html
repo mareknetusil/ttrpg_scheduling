@@ -1,1 +1,33 @@
-Hello, {{name}}!
+{% extends "base.html" %}
+
+{% block title %}Home · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Hello, {{ name }}!</h1>
+  <p class="muted">Campaigns, scheduling polls and session history will live here.</p>
+</section>
+
+<section class="card" x-data="{ rolls: 0, last: null }">
+  <h2>Toolchain check</h2>
+  <p>If both buttons work, htmx and Alpine.js are loaded.</p>
+  <div class="row">
+    <button type="button" class="button"
+            @click="last = Math.floor(Math.random() * 20) + 1; rolls++">
+      Roll d20 (Alpine)
+    </button>
+    <span x-show="last !== null" x-cloak>
+      Rolled <strong x-text="last"></strong>
+      <span class="muted">(<span x-text="rolls"></span>×)</span>
+    </span>
+  </div>
+  <div class="row">
+    <button type="button" class="button button--secondary"
+            hx-get="/static/css/style.css" hx-swap="none"
+            hx-on::after-request="this.nextElementSibling.textContent = 'htmx request: ' + event.detail.xhr.status">
+      Ping (htmx)
+    </button>
+    <span class="muted"></span>
+  </div>
+</section>
+{% endblock %}

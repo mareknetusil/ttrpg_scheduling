@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TTRPG Scheduling{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="/static/js/htmx-2.0.11.min.js" defer></script>
+  <script src="/static/js/alpine-3.17.4.min.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" href="/">
+        <span class="brand__die" aria-hidden="true">⬢</span>
+        <span>TTRPG Scheduling</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        {% if current_user %}
+          <a href="/">Campaigns</a>
+          <span class="site-nav__user">{{ current_user.display_name }}</span>
+          <form method="post" action="/logout">
+            <button type="submit" class="link-button">Log out</button>
+          </form>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">Roll for initiative.</div>
+  </footer>
+</body>
+</html>

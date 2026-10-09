@@ -12,8 +12,10 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
 
 ## Stack
 
-- **Backend:** Rust: `axum` (HTTP), `tokio` (async runtime), `sqlx` + SQLite (DB and migrations),
-  `minijinja` (server-side templates), `pulldown-cmark` + `ammonia` (Markdown to sanitized HTML),
+- **Backend:** Rust (edition 2024): `axum` 0.8 (HTTP), `tokio` (async runtime),
+  `tower-http` (static files, request tracing), `tracing` (logging), `sqlx` + SQLite (DB and
+  migrations), `minijinja` 3 (server-side templates; note v3 differs from the many v2 examples
+  online: `path_loader` needs no feature flag, serde support is the opt-in `serde` feature), `pulldown-cmark` + `ammonia` (Markdown to sanitized HTML),
   `argon2` (password hashing), `chrono` / `chrono-tz` (time handling).
 - **Frontend:** server-rendered HTML + htmx + Alpine.js + plain CSS. No JS build step, no SPA.
 
@@ -48,6 +50,14 @@ this project**. The repo has two modes of collaboration.
   the template context (the variables each handler passes to a template) and the routes listed
   in `docs/DESIGN.md`. If a template needs data the handler does not provide, say so and describe
   the needed field rather than editing the handler.
+- `templates/base.html` is the page shell; pages `{% extends "base.html" %}` and fill the
+  `title`, `head` and `content` blocks. The nav renders user links only when `current_user` is
+  in the context.
+- Styling lives in `static/css/style.css`; colours and spacing are CSS variables on `:root`
+  (with a `prefers-color-scheme: dark` override). Reuse them instead of hard-coding values.
+- htmx and Alpine.js are vendored in `static/js/` with the version in the file name
+  (htmx 2.0.x, Alpine 3.x). No CDNs, no web fonts: the Pi serves only over the VPN and may have
+  no internet access. To upgrade, download the new file, rename it, and update `base.html`.
 - htmx partials are rendered from named blocks of the full-page template where possible
   (so one template file serves both the full page and the fragment).
 - User-provided Markdown arrives already rendered and sanitized; output it with `|safe` only for
@@ -56,7 +66,9 @@ this project**. The repo has two modes of collaboration.
 ## Commands
 
 ```sh
-cargo run                      # run dev server
+cargo run                      # dev server on 0.0.0.0:8080 (run from repo root: templates/ and
+                               # static/ are resolved relative to the working directory)
+RUST_LOG=debug cargo run       # override the default log filter "info,tower_http=debug"
 cargo check                    # fast type check
 cargo clippy --all-targets     # lints, keep warnings at zero
 cargo fmt                      # format
@@ -69,6 +81,9 @@ cargo zigbuild --release --target aarch64-unknown-linux-musl
 ```
 
 ## Conventions
+
+- Git commit messages: **no `Co-Authored-By` or other AI attribution lines.** Keep commits
+  split by author where practical (user-written Rust vs agent-written frontend).
 
 - "Session" is ambiguous here. Use **`game_session`** for a played/planned TTRPG session and
   **`auth_session`** for a login session, in code, tables and routes alike.

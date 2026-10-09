@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.2 (2026-10-09)
+Status: draft v0.3 (2026-10-10). Progress: M0 and M1 done, M2 next.
 
 ## 1. Goals and non-goals
 
@@ -59,7 +59,7 @@ Status: draft v0.2 (2026-10-09)
 | HTTP | `axum` | Most common Rust web framework; extractor model resembles FastAPI dependencies. |
 | Runtime | `tokio` | Required by axum. |
 | DB | `sqlx` (SQLite) | Plain SQL (no ORM to learn), compile-time-checked queries, built-in migrations. SQLite is compiled in (bundled), so it's the only C code to cross-compile. |
-| Templates | `minijinja` | Jinja2 syntax you already know. Templates live outside Rust, so frontend agents never touch `.rs` files. Supports rendering single blocks (for htmx). Alternative: `askama` (compile-time checked, but each template needs a Rust struct, which couples frontend and backend work). |
+| Templates | `minijinja` | Jinja2 syntax you already know. Templates live outside Rust, so frontend agents never touch `.rs` files. Supports rendering single blocks (`eval_to_state(..)?.render_block(..)`, for htmx). Alternative: `askama` (compile-time checked, but each template needs a Rust struct, which couples frontend and backend work). |
 | Markdown | `pulldown-cmark` + `ammonia` | Render CommonMark (+ tables, strikethrough, task lists), then sanitize the HTML. |
 | Passwords | `argon2` | Current standard password hash. |
 | Time | `chrono` + `chrono-tz` | Well supported by sqlx. |
@@ -89,7 +89,8 @@ templates/
   base.html
   campaigns/...
 static/
-  css/  js/ (htmx.min.js, alpine.min.js, vendored, no CDN dependency)
+  css/style.css
+  js/  (htmx-<ver>.min.js, alpine-<ver>.min.js: vendored, version in file name, no CDN)
 docs/
 ```
 
@@ -347,19 +348,19 @@ sqlx compile-time query checks also run on the desktop against the dev DB, so th
 Each milestone should end in something that runs. The Rust concepts it introduces are listed
 next to it.
 
-| # | Milestone | Rust concepts |
-|---|---|---|
-| M0 | `cargo new`, axum "hello world", `tracing` logs; **cross-compile it and run it on the Pi** | Cargo, crates, `async`/`.await`, `#[tokio::main]`, modules, targets & release profile |
-| M1 | `AppState`, minijinja base template, static files | structs, `Arc`, `Clone`, `serde::Serialize`, the `State` extractor |
-| M2 | SQLite pool, first migration, `AppError` | `Result`, `?`, enums, `impl Trait for`, `IntoResponse`, `thiserror` |
-| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | traits (`FromRequestParts`), `Option`, cookies, argon2, CLI args |
-| M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` |
-| M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries |
-| M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators |
-| M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests |
-| M8 | Game session history, attendance, entries | putting it together; refactoring shared code |
-| M9 | Comments and polls | generic helpers if (and only if) duplication appears |
-| M10 | Integration tests, systemd hardening, backups, deploy script polish | `#[sqlx::test]`, `tower::ServiceExt::oneshot`, release profile |
+| # | Milestone | Rust concepts | Status |
+|---|---|---|---|
+| M0 | `cargo new`, axum "hello world"; **cross-compile it and run it on the Pi** | Cargo, crates, `async`/`.await`, `#[tokio::main]`, targets & release profile | done |
+| M1 | `AppState`, minijinja base template, static files, `tracing` request logs | `Arc`, the `State` extractor, `Result` + `map_err` + `?`, closures, `use`/paths/prelude, `Display` vs `Debug` | done |
+| M2 | SQLite pool, first migration, `AppError`, `main` returning `Result` | enums with data, `impl Trait for`, `IntoResponse`, `From` + `?` conversions, `thiserror` | |
+| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | traits (`FromRequestParts`), `Option`, cookies, argon2, CLI args | |
+| M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | |
+| M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |
+| M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |
+| M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |
+| M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |
+| M9 | Comments and polls | generic helpers if (and only if) duplication appears | |
+| M10 | Integration tests, systemd hardening, backups, deploy script polish | `#[sqlx::test]`, `tower::ServiceExt::oneshot`, release profile | |
 
 ## 11. Later ideas
 

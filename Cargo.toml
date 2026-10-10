@@ -5,12 +5,20 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+argon2 = "0.6.0"
 axum = { version = "0.8.9", features = ["macros"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
+clap = { version = "4.6.7", features = ["derive"] }
 dotenvy = "0.15.7"
 minijinja = "3.0.0"
+rand = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite"] }
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[profile.dev.package.argon2]
+opt-level = 3

@@ -13,10 +13,12 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
 ## Stack
 
 - **Backend:** Rust (edition 2024): `axum` 0.8 (HTTP), `tokio` (async runtime),
-  `tower-http` (static files, request tracing), `tracing` (logging), `sqlx` + SQLite (DB and
-  migrations), `minijinja` 3 (server-side templates; note v3 differs from the many v2 examples
-  online: `path_loader` needs no feature flag, serde support is the opt-in `serde` feature), `pulldown-cmark` + `ammonia` (Markdown to sanitized HTML),
-  `argon2` (password hashing), `chrono` / `chrono-tz` (time handling).
+  `tower-http` 0.7 (static files, request tracing), `tracing` (logging),
+  `sqlx` 0.9 + SQLite (features `runtime-tokio`, `sqlite`; SQLite is bundled C code),
+  `thiserror` (typed `AppError`) + `anyhow` (startup/glue errors), `dotenvy` (`.env` in dev),
+  `minijinja` 3 (server-side templates; v3 differs from the many v2 examples online:
+  `path_loader` needs no feature flag, serde support is the opt-in `serde` feature).
+  Planned: `pulldown-cmark` + `ammonia` (Markdown), `argon2` (passwords), `chrono` (time).
 - **Frontend:** server-rendered HTML + htmx + Alpine.js + plain CSS. No JS build step, no SPA.
 
 ## How we work together (important)
@@ -63,9 +65,28 @@ this project**. The repo has two modes of collaboration.
 - User-provided Markdown arrives already rendered and sanitized; output it with `|safe` only for
   fields documented as pre-rendered HTML (`*_html`). Never mark raw user input as safe.
 
+## Code map
+
+- `src/main.rs`: startup (dotenv, config, logging, templates, DB, router, serve), `AppState`,
+  handlers (until they move into feature modules).
+- `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to
+  `0.0.0.0:8080`. `.env` is optional (dev only); see `.env.example`.
+- `src/db.rs`: `connect()` builds the SQLite pool (WAL, `synchronous=NORMAL`, max 4 connections)
+  and runs the embedded migrations.
+- `src/error.rs`: `AppError` (thiserror) + `IntoResponse`. Internal errors are logged and returned
+  as a generic 500; the response body never contains internal error text.
+- `build.rs`: makes cargo rebuild when `migrations/` changes (needed by `sqlx::migrate!()`).
+
 ## Commands
 
 ```sh
+# First-time setup (fresh clone). The sqlx query macros connect to the dev DB at compile time,
+# so the DB must exist and be migrated BEFORE the first `cargo build`.
+cp .env.example .env
+mkdir -p data
+cargo install --locked sqlx-cli --no-default-features --features sqlite
+sqlx database setup            # create data/dev.db and run migrations
+
 cargo run                      # dev server on 0.0.0.0:8080 (run from repo root: templates/ and
                                # static/ are resolved relative to the working directory)
 RUST_LOG=debug cargo run       # override the default log filter "info,tower_http=debug"
@@ -74,7 +95,8 @@ cargo clippy --all-targets     # lints, keep warnings at zero
 cargo fmt                      # format
 cargo test                     # tests (DB tests use sqlx::test with a temp SQLite DB)
 sqlx migrate add <name>        # new migration (needs: cargo install sqlx-cli)
-sqlx migrate run               # apply migrations
+sqlx migrate run               # apply migrations (the app also runs them on startup)
+sqlx database reset            # dev only: drop, recreate and re-migrate data/dev.db
 
 # Release build for the Pi (64-bit Raspberry Pi OS)
 cargo zigbuild --release --target aarch64-unknown-linux-musl
@@ -88,6 +110,12 @@ cargo zigbuild --release --target aarch64-unknown-linux-musl
 - "Session" is ambiguous here. Use **`game_session`** for a played/planned TTRPG session and
   **`auth_session`** for a login session, in code, tables and routes alike.
 - All timestamps are stored in UTC in the DB and converted to the display time zone at render time.
-- Schema changes go through `sqlx` migrations only; never edit an already-applied migration.
-- Errors: handlers return `Result<_, AppError>`; `AppError` implements `IntoResponse`.
+- Schema changes go through `sqlx` migrations only. Never edit a migration that has been deployed
+  to the Pi (sqlx checksums them and refuses to start); locally, edit + `sqlx database reset` is OK.
+- SQLite schema style: `STRICT` tables; booleans as `INTEGER NOT NULL CHECK (x IN (0, 1))`;
+  timestamps as UTC `TEXT` (`strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`); nullability chosen
+  deliberately, since nullable columns become `Option<T>` in Rust.
+- Errors: handlers return `Result<_, AppError>` and use plain `?` (`#[from]` conversions).
+  Startup/glue code uses `anyhow::Result` with `.context(...)` so failures name what failed.
+  `Display` messages describe only their own layer; the cause comes from `source()`.
 - Authorization checks live in the backend; templates may hide buttons, but must not be the only check.

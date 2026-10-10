@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.3 (2026-10-10). Progress: M0 and M1 done, M2 next.
+Status: draft v0.4 (2026-10-10). Progress: M0–M2 done, M3 next.
 
 ## 1. Goals and non-goals
 
@@ -63,8 +63,8 @@ Status: draft v0.3 (2026-10-10). Progress: M0 and M1 done, M2 next.
 | Markdown | `pulldown-cmark` + `ammonia` | Render CommonMark (+ tables, strikethrough, task lists), then sanitize the HTML. |
 | Passwords | `argon2` | Current standard password hash. |
 | Time | `chrono` + `chrono-tz` | Well supported by sqlx. |
-| Errors | `thiserror` (+ maybe `anyhow`) | Typed `AppError` that implements `IntoResponse`. |
-| Config | env vars (`dotenvy` in dev) | `DATABASE_URL`, `BIND_ADDR`, `DISPLAY_TZ`, `SECRET`... |
+| Errors | `thiserror` + `anyhow` | Typed `AppError` (thiserror) that implements `IntoResponse` for handlers; `anyhow` + `.context()` for startup code. |
+| Config | env vars (`dotenvy` loads an optional `.env` in dev) | `DATABASE_URL` (required), `BIND_ADDR` (default `0.0.0.0:8080`); later `DISPLAY_TZ`, `SECRET`... |
 | Logging | `tracing` + `tracing-subscriber`, `tower-http` `TraceLayer` | Request logs. |
 | Static files | `tower-http` `ServeDir` | |
 
@@ -72,11 +72,13 @@ Status: draft v0.3 (2026-10-10). Progress: M0 and M1 done, M2 next.
 
 ```
 Cargo.toml
-migrations/            # sqlx SQL migrations
+build.rs               # rebuild when migrations/ changes
+migrations/            # sqlx SQL migrations (embedded into the binary)
 src/
-  main.rs              # config, DB pool, router, serve
-  config.rs
-  state.rs             # AppState { db: SqlitePool, templates: Environment, ... }
+  main.rs              # startup, router, serve (AppState + handlers live here for now)
+  config.rs            # Config::from_env()
+  db.rs                # pool + migrations
+  state.rs             # (planned) AppState { db: SqlitePool, templates: Environment, ... }
   error.rs             # AppError + IntoResponse
   markdown.rs          # md -> sanitized html
   auth/                # password hashing, auth_sessions, CurrentUser extractor
@@ -313,6 +315,10 @@ sqlx compile-time query checks also run on the desktop against the dev DB, so th
 
 - Deploy = `rsync` a directory to the Pi: binary, `templates/`, `static/`. Migrations are
   embedded in the binary with `sqlx::migrate!()` and run on startup.
+- The Pi has no `.env`: set `DATABASE_URL` (e.g. `sqlite:data/app.db`) in the environment
+  (systemd `Environment=`/`EnvironmentFile=`). SQLite creates the DB file but **not** its
+  directory, so `data/` must exist; otherwise startup fails with
+  "failed to open database …: unable to open database file".
   (Embedding templates/static too, e.g. via `minijinja-embed` / `rust-embed`, is an optional later
   step for a true single-file deploy.)
 - A **systemd service** (no Docker; it isn't worth the RAM and disk overhead on a Pi 3), running
@@ -352,7 +358,7 @@ next to it.
 |---|---|---|---|
 | M0 | `cargo new`, axum "hello world"; **cross-compile it and run it on the Pi** | Cargo, crates, `async`/`.await`, `#[tokio::main]`, targets & release profile | done |
 | M1 | `AppState`, minijinja base template, static files, `tracing` request logs | `Arc`, the `State` extractor, `Result` + `map_err` + `?`, closures, `use`/paths/prelude, `Display` vs `Debug` | done |
-| M2 | SQLite pool, first migration, `AppError`, `main` returning `Result` | enums with data, `impl Trait for`, `IntoResponse`, `From` + `?` conversions, `thiserror` | |
+| M2 | SQLite pool, first migration (`users`), `AppError`, config from env, `main` returning `Result` | enums with data + exhaustive `match`, implementing traits (`Display`, `Error` + `source()`, `From`, `IntoResponse`), trait objects, `?` + `From`, `thiserror` vs `anyhow`, modules, builder pattern, `FromStr`/`parse`, `&str` params, compile-time-checked SQL | done |
 | M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | traits (`FromRequestParts`), `Option`, cookies, argon2, CLI args | |
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |

@@ -1,32 +1,32 @@
-use axum::{Router, extract::State, http::StatusCode, response::Html, routing::get};
+mod config;
+mod error;
+
+use anyhow::Context;
+use axum::{Router, extract::State, response::Html, routing::get};
 use minijinja::{Environment, context};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
 
-fn internal_error(e: minijinja::Error) -> StatusCode {
-    tracing::error!(error = ?e, "template error");
-    StatusCode::INTERNAL_SERVER_ERROR
-}
-
 struct AppState {
     templates: Environment<'static>,
 }
 
+async fn fallback_error_handler() -> error::AppError {
+    error::AppError::NotFound
+}
+
 #[axum::debug_handler]
-async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
-    let template = state
-        .templates
-        .get_template("index.html")
-        .map_err(internal_error)?;
-    let body = template
-        .render(context! { name => "x" })
-        .map_err(internal_error)?;
+async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, error::AppError> {
+    let template = state.templates.get_template("index.html")?;
+    let body = template.render(context! { name => "x" })?;
     Ok(Html(body))
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+    let config = config::Config::from_env()?;
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -41,9 +41,14 @@ async fn main() {
         .route("/", get(index))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
+        .fallback(fallback_error_handler)
         .layer(TraceLayer::new_for_http());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    tracing::info!(addr = %listener.local_addr().unwrap(), "listening");
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(config.bind_addr)
+        .await
+        .with_context(|| format!("failed to bind {}", config.bind_addr))?;
+    tracing::info!(addr = %listener.local_addr()?, "listening");
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }

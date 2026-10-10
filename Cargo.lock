@@ -1614,6 +1614,7 @@ dependencies = [
  "dotenvy",
  "minijinja",
  "sqlx",
+ "thiserror",
  "tokio",
  "tower-http",
  "tracing",

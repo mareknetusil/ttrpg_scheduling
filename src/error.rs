@@ -1,44 +1,15 @@
 use axum::{http, response};
-use std::error::Error;
-use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    #[error("not found")]
     NotFound,
-    Template(minijinja::Error),
-    Database(sqlx::Error),
-}
 
-impl fmt::Display for AppError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotFound => write!(f, "not found"),
-            Self::Template(_) => write!(f, "failed to render template"),
-            Self::Database(_) => write!(f, "database error"),
-        }
-    }
-}
+    #[error("failed to render template")]
+    Template(#[from] minijinja::Error),
 
-impl Error for AppError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::NotFound => None,
-            Self::Template(e) => Some(e),
-            Self::Database(e) => Some(e),
-        }
-    }
-}
-
-impl From<minijinja::Error> for AppError {
-    fn from(error: minijinja::Error) -> Self {
-        Self::Template(error)
-    }
-}
-
-impl From<sqlx::Error> for AppError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
-    }
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
 }
 
 impl response::IntoResponse for AppError {

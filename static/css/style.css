@@ -8,6 +8,8 @@
   --accent: #8a3b2e;
   --accent-contrast: #ffffff;
   --accent-soft: #f3e4df;
+  --danger: #a3261b;
+  --danger-soft: #fbe9e6;
 
   --radius: 8px;
   --space-1: 0.25rem;
@@ -32,6 +34,8 @@
     --accent: #d77a64;
     --accent-contrast: #1a1310;
     --accent-soft: #3a2621;
+    --danger: #f08a7c;
+    --danger-soft: #3b1d19;
   }
 }
 
@@ -166,6 +170,45 @@ a { color: var(--accent); }
   cursor: pointer;
 }
 .link-button:hover { color: var(--accent); }
+
+/* ---------- Forms ---------- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.field label { font-weight: 600; }
+.field input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.field input:focus-visible { border-color: var(--accent); }
+.form .button { align-self: flex-start; }
+
+.alert {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid currentColor;
+}
+.alert--error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Narrow centred column for login and similar pages */
+.auth {
+  max-width: 24rem;
+  margin: var(--space-5) auto 0;
+}
 
 :focus-visible {
   outline: 2px solid var(--accent);

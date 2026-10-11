@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{# Context:
+     error     optional string, shown above the form (e.g. "Invalid username or password")
+     username  optional string, refills the username field after a failed attempt #}
+
+{% block title %}Log in · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="auth">
+  <div class="card">
+    <h1>Log in</h1>
+
+    {% if error %}
+      <p class="alert alert--error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="/login" class="form">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text"
+               value="{{ username or "" }}"
+               autocomplete="username" autocapitalize="none" spellcheck="false"
+               required {% if not username %}autofocus{% endif %}>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password"
+               autocomplete="current-password"
+               required {% if username %}autofocus{% endif %}>
+      </div>
+
+      <button type="submit" class="button">Log in</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,9 +1,12 @@
+mod auth;
+mod cli;
 mod config;
 mod db;
 mod error;
 
 use anyhow::Context;
 use axum::{Router, extract::State, response::Html, routing::get};
+use clap::Parser;
 use minijinja::{Environment, context};
 use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
@@ -32,6 +35,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, error
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    let cli = cli::Cli::parse();
+
     let config = config::Config::from_env()?;
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -39,11 +44,21 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug")),
         )
         .init();
+    let db = db::connect(&config.database_url).await?;
+
+    match cli.command {
+        Some(cli::Command::CreateAdmin {
+            username,
+            display_name,
+        }) => cli::create_admin(&db, username, display_name).await,
+        None => serve(config, db).await,
+    }
+}
+
+async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
     let mut env = Environment::new();
     env.set_loader(minijinja::path_loader("templates"));
-    let db = db::connect(&config.database_url).await?;
     let state = AppState { templates: env, db };
-
     let app = Router::new()
         .route("/", get(index))
         .nest_service("/static", ServeDir::new("static"))

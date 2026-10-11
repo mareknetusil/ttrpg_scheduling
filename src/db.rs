@@ -13,7 +13,8 @@ pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePoolOptions::new()
         .max_connections(4)
         .connect_with(options)
-        .await.with_context(|| format!("failed to open database {database_url}"))?;
+        .await
+        .with_context(|| format!("failed to open database {database_url}"))?;
     sqlx::migrate!()
         .run(&pool)
         .await

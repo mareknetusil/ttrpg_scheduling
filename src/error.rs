@@ -10,6 +10,9 @@ pub enum AppError {
 
     #[error("database error")]
     Database(#[from] sqlx::Error),
+
+    #[error("internal error")]
+    Internal(#[from] anyhow::Error),
 }
 
 impl response::IntoResponse for AppError {
@@ -22,6 +25,10 @@ impl response::IntoResponse for AppError {
             }
             Self::Database(e) => {
                 tracing::error!(error = ?e, "database error");
+                (http::StatusCode::INTERNAL_SERVER_ERROR, "Internal Error").into_response()
+            }
+            Self::Internal(e) => {
+                tracing::error!(error = ?e, "internal error");
                 (http::StatusCode::INTERNAL_SERVER_ERROR, "Internal Error").into_response()
             }
         }

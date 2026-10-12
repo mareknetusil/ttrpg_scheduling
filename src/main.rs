@@ -61,6 +61,10 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
     let state = AppState { templates: env, db };
     let app = Router::new()
         .route("/", get(index))
+        .route(
+            "/login",
+            get(auth::handlers::login_page).post(auth::handlers::login),
+        )
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)

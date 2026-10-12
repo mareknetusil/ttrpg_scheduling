@@ -4,7 +4,7 @@
 
 {% block content %}
 <section class="hero">
-    <h1>Hello, {{ name }}!</h1>
+    <h1>Hello, {{ current_user.display_name }}!</h1>
 <h3>There are {{ user_count }} user{{ "s" if user_count != 1}} registered! {%if user_count > 2 %} Hurray!{% else %}Lame!{% endif %}</h3>
   <p class="muted">Campaigns, scheduling polls and session history will live here.</p>
 </section>

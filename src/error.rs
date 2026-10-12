@@ -13,6 +13,9 @@ pub enum AppError {
 
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
+
+    #[error("unauthorized")]
+    Unauthorized,
 }
 
 impl response::IntoResponse for AppError {
@@ -31,6 +34,7 @@ impl response::IntoResponse for AppError {
                 tracing::error!(error = ?e, "internal error");
                 (http::StatusCode::INTERNAL_SERVER_ERROR, "Internal Error").into_response()
             }
+            Self::Unauthorized => response::Redirect::to("/login").into_response(),
         }
     }
 }

@@ -4,6 +4,7 @@ mod config;
 mod db;
 mod error;
 
+use crate::auth::extractor::CurrentUser;
 use anyhow::Context;
 use axum::{Router, extract::State, response::Html, routing::get};
 use clap::Parser;
@@ -23,12 +24,16 @@ async fn fallback_error_handler() -> error::AppError {
 }
 
 #[axum::debug_handler]
-async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, error::AppError> {
+async fn index(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+) -> Result<Html<String>, error::AppError> {
     let user_count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM users")
         .fetch_one(&state.db)
         .await?;
     let template = state.templates.get_template("index.html")?;
-    let body = template.render(context! { name => "x", user_count })?;
+    let body = template
+        .render(context! { current_user => minijinja::value::Serde(user), user_count })?;
     Ok(Html(body))
 }
 

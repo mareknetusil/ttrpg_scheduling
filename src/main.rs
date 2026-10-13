@@ -34,12 +34,12 @@ async fn index(
     State(state): State<Arc<AppState>>,
     user: CurrentUser,
 ) -> Result<Html<String>, error::AppError> {
-    let user_count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.db)
-        .await?;
+    let campaigns = campaigns::db::for_user(&state.db, user.id).await?;
     let template = state.templates.get_template("index.html")?;
-    let body =
-        template.render(context! { current_user => minijinja::value::Serde(user), user_count })?;
+    let body = template.render(context! {
+        current_user => minijinja::value::Serde(user),
+        campaigns => minijinja::value::Serde(&campaigns)
+    })?;
     Ok(Html(body))
 }
 

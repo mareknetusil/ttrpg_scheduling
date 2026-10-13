@@ -183,7 +183,8 @@ a { color: var(--accent); }
   gap: var(--space-1);
 }
 .field label { font-weight: 600; }
-.field input {
+.field input,
+.field textarea {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -191,7 +192,9 @@ a { color: var(--accent); }
   color: var(--text);
   font: inherit;
 }
-.field input:focus-visible { border-color: var(--accent); }
+.field input:focus-visible,
+.field textarea:focus-visible { border-color: var(--accent); }
+.field textarea { resize: vertical; min-height: 6rem; }
 .form .button { align-self: flex-start; }
 
 .alert {
@@ -203,6 +206,9 @@ a { color: var(--accent); }
   color: var(--danger);
   background: var(--danger-soft);
 }
+
+/* Medium-width column for forms like "new campaign" */
+.narrow { max-width: 40rem; margin-inline: auto; }
 
 /* Narrow centred column for login and similar pages */
 .auth {

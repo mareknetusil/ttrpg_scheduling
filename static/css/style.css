@@ -261,6 +261,22 @@ a.button { text-decoration: none; }
   letter-spacing: 0.04em;
 }
 
+/* ---------- Campaign page ---------- */
+.breadcrumb { margin: 0 0 var(--space-2); font-size: 0.9rem; }
+.breadcrumb a { color: var(--muted); text-decoration: none; }
+.breadcrumb a:hover { color: var(--accent); }
+.page-head .row { margin: 0; }
+
+.tagline {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-style: italic;
+}
+.card h2 { margin-top: 0; font-size: 1.1rem; }
+/* Unrendered Markdown: keep the author's line breaks, wrap long lines */
+.prose-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .empty { text-align: center; }
 .empty p { margin: var(--space-1) 0; }
 

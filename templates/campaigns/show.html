@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
+     can_manage    bool: GM of this campaign or site admin (shows Edit / Members)
+   description_md is shown as plain escaped text until Markdown rendering arrives in M5. #}
+
+{% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">← Campaigns</a></p>
+
+<section class="page-head">
+  <div>
+    <h1>{{ campaign.name }}</h1>
+    <p class="muted">
+      {{ campaign.system }} · GM:
+      {% if campaign.gm_user_id == current_user.id %}you{% else %}{{ campaign.gm_name }}{% endif %}
+    </p>
+  </div>
+  {% if can_manage %}
+    <div class="row">
+      <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/members">Members</a>
+      <a class="button" href="/campaigns/{{ campaign.id }}/edit">Edit</a>
+    </div>
+  {% endif %}
+</section>
+
+{% if campaign.tagline %}
+  <p class="tagline">{{ campaign.tagline }}</p>
+{% endif %}
+
+<section class="card">
+  <h2>About</h2>
+  {% if campaign.description_md %}
+    <div class="prose-plain">{{ campaign.description_md }}</div>
+  {% else %}
+    <p class="muted">No description yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

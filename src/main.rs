@@ -1,4 +1,5 @@
 mod auth;
+mod campaigns;
 mod cli;
 mod config;
 mod db;
@@ -76,6 +77,7 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
             get(auth::handlers::login_page).post(auth::handlers::login),
         )
         .route("/logout", post(auth::handlers::logout))
+        .nest("/campaigns", campaigns::router())
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)

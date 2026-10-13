@@ -6,7 +6,12 @@ mod error;
 
 use crate::auth::extractor::CurrentUser;
 use anyhow::Context;
-use axum::{Router, extract::State, response::Html, routing::get};
+use axum::{
+    Router,
+    extract::State,
+    response::Html,
+    routing::{get, post},
+};
 use clap::Parser;
 use minijinja::{Environment, context};
 use sqlx::sqlite::SqlitePool;
@@ -32,8 +37,8 @@ async fn index(
         .fetch_one(&state.db)
         .await?;
     let template = state.templates.get_template("index.html")?;
-    let body = template
-        .render(context! { current_user => minijinja::value::Serde(user), user_count })?;
+    let body =
+        template.render(context! { current_user => minijinja::value::Serde(user), user_count })?;
     Ok(Html(body))
 }
 
@@ -70,6 +75,7 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
             "/login",
             get(auth::handlers::login_page).post(auth::handlers::login),
         )
+        .route("/logout", post(auth::handlers::logout))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)

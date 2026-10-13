@@ -1,6 +1,11 @@
 use sqlx::sqlite::SqlitePool;
 
 pub async fn create(db: &SqlitePool, user_id: i64) -> Result<String, sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM auth_sessions WHERE expires_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+    )
+    .execute(db)
+    .await?;
     let bytes: [u8; 32] = rand::random();
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     sqlx::query!(
@@ -9,6 +14,13 @@ pub async fn create(db: &SqlitePool, user_id: i64) -> Result<String, sqlx::Error
         user_id
     ).execute(db).await?;
     Ok(token)
+}
+
+pub async fn remove(db: &SqlitePool, token: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM auth_sessions WHERE id=?", token)
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]

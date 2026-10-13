@@ -1,5 +1,8 @@
-use crate::auth::{password, session};
-use crate::error;
+use crate::{
+    AppState,
+    auth::{password, session},
+    error::AppError,
+};
 use axum::{
     extract::{Form, State},
     response::{Html, IntoResponse, Redirect, Response},
@@ -14,19 +17,17 @@ pub struct LoginForm {
     password: String,
 }
 
-pub async fn login_page(
-    State(state): State<Arc<crate::AppState>>,
-) -> Result<Html<String>, error::AppError> {
+pub async fn login_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppError> {
     let template = state.templates.get_template("login.html")?;
     let body = template.render(context! {})?;
     Ok(Html(body))
 }
 
 pub async fn login(
-    State(state): State<Arc<crate::AppState>>,
+    State(state): State<Arc<AppState>>,
     jar: CookieJar,
     Form(form): Form<LoginForm>,
-) -> Result<Response, error::AppError> {
+) -> Result<Response, AppError> {
     let user = sqlx::query!(
         "SELECT id, password_hash FROM users WHERE username = ?",
         form.username
@@ -54,7 +55,21 @@ pub async fn login(
     Ok((jar.add(cookie), Redirect::to("/")).into_response())
 }
 
-fn login_failed(username: &str, state: &crate::AppState) -> Result<Response, error::AppError> {
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    jar: CookieJar,
+) -> Result<Response, AppError> {
+    if let Some(cookie) = jar.get("session") {
+        session::remove(&state.db, cookie.value()).await?;
+    }
+    Ok((
+        jar.remove(Cookie::build("session").path("/")),
+        Redirect::to("/login"),
+    )
+        .into_response())
+}
+
+fn login_failed(username: &str, state: &AppState) -> Result<Response, AppError> {
     let body = state
         .templates
         .get_template("login.html")?

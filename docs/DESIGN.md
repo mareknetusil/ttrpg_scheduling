@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.5 (2026-10-13). Progress: M0–M2 done; M3 code done, Pi deployment pending.
+Status: draft v0.5 (2026-10-13). Progress: M0–M3 done, M4 next.
 
 ## 1. Goals and non-goals
 
@@ -366,14 +366,16 @@ sqlx compile-time query checks also run on the desktop against the dev DB, so th
 ## 10. Milestones (learning path)
 
 Each milestone should end in something that runs. The Rust concepts it introduces are listed
-next to it.
+next to it. A milestone counts as done when it runs locally. Deploying to the Pi isn't repeated
+for every milestone: M0 proved the cross-compile toolchain, and the Pi gets updated when a
+version is worth using.
 
 | # | Milestone | Rust concepts | Status |
 |---|---|---|---|
 | M0 | `cargo new`, axum "hello world"; **cross-compile it and run it on the Pi** | Cargo, crates, `async`/`.await`, `#[tokio::main]`, targets & release profile | done |
 | M1 | `AppState`, minijinja base template, static files, `tracing` request logs | `Arc`, the `State` extractor, `Result` + `map_err` + `?`, closures, `use`/paths/prelude, `Display` vs `Debug` | done |
 | M2 | SQLite pool, first migration (`users`), `AppError`, config from env, `main` returning `Result` | enums with data + exhaustive `match`, implementing traits (`Display`, `Error` + `source()`, `From`, `IntoResponse`), trait objects, `?` + `From`, `thiserror` vs `anyhow`, modules, builder pattern, `FromStr`/`parse`, `&str` params, compile-time-checked SQL | done |
-| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | code done, Pi pending |
+| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | done |
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |

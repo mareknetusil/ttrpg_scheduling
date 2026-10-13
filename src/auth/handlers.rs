@@ -58,15 +58,14 @@ pub async fn login(
 pub async fn logout(
     State(state): State<Arc<AppState>>,
     jar: CookieJar,
-) -> Result<Response, AppError> {
+) -> Result<(CookieJar, Redirect), AppError> {
     if let Some(cookie) = jar.get("session") {
         session::remove(&state.db, cookie.value()).await?;
     }
     Ok((
         jar.remove(Cookie::build("session").path("/")),
         Redirect::to("/login"),
-    )
-        .into_response())
+    ))
 }
 
 fn login_failed(username: &str, state: &AppState) -> Result<Response, AppError> {

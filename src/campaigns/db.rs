@@ -1,4 +1,4 @@
-use super::model::{CampaignForm, CampaignSummary};
+use super::model::{Campaign, CampaignForm, CampaignSummary};
 use anyhow::Context;
 use sqlx::sqlite::SqlitePool;
 
@@ -38,4 +38,24 @@ pub async fn for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<CampaignSumma
         user_id
     ).fetch_all(db)
     .await
+}
+
+pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<Campaign>, sqlx::Error> {
+    sqlx::query_as!(
+        Campaign,
+        r#"SELECT c.id, c.name, c.system, c.tagline, c.description_md, c.gm_user_id, u.display_name as gm_name FROM campaigns AS c JOIN users AS u ON c.gm_user_id = u.id WHERE c.id = ?"#,
+        id
+    ).fetch_optional(db).await
+}
+
+pub async fn is_member(
+    db: &SqlitePool,
+    campaign_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM campaign_members WHERE campaign_id = ? AND user_id = ?) AS "is_member: bool""#,
+        campaign_id,
+        user_id
+    ).fetch_one(db).await
 }

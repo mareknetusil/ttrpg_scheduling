@@ -13,4 +13,5 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(handlers::create))
         .route("/new", get(handlers::new_form))
+        .route("/{id}", get(handlers::show))
 }

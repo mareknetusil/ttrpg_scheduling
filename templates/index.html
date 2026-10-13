@@ -1,34 +1,39 @@
 {% extends "base.html" %}
 
-{% block title %}Home · TTRPG Scheduling{% endblock %}
+{# Context:
+     current_user  required (nav, greeting)
+     campaigns     list of { id, name, system, tagline, is_gm }, the user's non-archived campaigns #}
+
+{% block title %}Campaigns · TTRPG Scheduling{% endblock %}
 
 {% block content %}
-<section class="hero">
+<section class="page-head">
+  <div>
     <h1>Hello, {{ current_user.display_name }}!</h1>
-<h3>There are {{ user_count }} user{{ "s" if user_count != 1}} registered! {%if user_count > 2 %} Hurray!{% else %}Lame!{% endif %}</h3>
-  <p class="muted">Campaigns, scheduling polls and session history will live here.</p>
+    <p class="muted">Your campaigns</p>
+  </div>
+  <a class="button" href="/campaigns/new">New campaign</a>
 </section>
 
-<section class="card" x-data="{ rolls: 0, last: null }">
-  <h2>Toolchain check</h2>
-  <p>If both buttons work, htmx and Alpine.js are loaded.</p>
-  <div class="row">
-    <button type="button" class="button"
-            @click="last = Math.floor(Math.random() * 20) + 1; rolls++">
-      Roll d20 (Alpine)
-    </button>
-    <span x-show="last !== null" x-cloak>
-      Rolled <strong x-text="last"></strong>
-      <span class="muted">(<span x-text="rolls"></span>×)</span>
-    </span>
+{% if campaigns %}
+  <ul class="campaign-list">
+    {% for c in campaigns %}
+      <li>
+        <a class="campaign-card" href="/campaigns/{{ c.id }}">
+          <span class="campaign-card__title">
+            <strong>{{ c.name }}</strong>
+            {% if c.is_gm %}<span class="badge">GM</span>{% endif %}
+          </span>
+          <span class="muted">{{ c.system }}</span>
+          {% if c.tagline %}<span class="campaign-card__tagline">{{ c.tagline }}</span>{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="card empty">
+    <p>You're not in any campaign yet.</p>
+    <p class="muted">Start one as its GM, or ask your GM for an invite link.</p>
   </div>
-  <div class="row">
-    <button type="button" class="button button--secondary"
-            hx-get="/static/css/style.css" hx-swap="none"
-            hx-on::after-request="this.nextElementSibling.textContent = 'htmx request: ' + event.detail.xhr.status">
-      Ping (htmx)
-    </button>
-    <span class="muted"></span>
-  </div>
-</section>
+{% endif %}
 {% endblock %}

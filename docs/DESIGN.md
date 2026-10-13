@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.4 (2026-10-10). Progress: M0–M2 done, M3 next.
+Status: draft v0.5 (2026-10-13). Progress: M0–M2 done; M3 code done, Pi deployment pending.
 
 ## 1. Goals and non-goals
 
@@ -75,13 +75,19 @@ Cargo.toml
 build.rs               # rebuild when migrations/ changes
 migrations/            # sqlx SQL migrations (embedded into the binary)
 src/
-  main.rs              # startup, router, serve (AppState + handlers live here for now)
+  main.rs              # parse CLI, startup, then create-admin or serve (AppState + index handler)
+  cli.rs               # clap Cli/Command, create_admin()
   config.rs            # Config::from_env()
   db.rs                # pool + migrations
   state.rs             # (planned) AppState { db: SqlitePool, templates: Environment, ... }
   error.rs             # AppError + IntoResponse
   markdown.rs          # md -> sanitized html
-  auth/                # password hashing, auth_sessions, CurrentUser extractor
+  auth/
+    mod.rs
+    password.rs        # argon2 hash()/verify() via spawn_blocking
+    session.rs         # create()/remove() rows in auth_sessions
+    extractor.rs       # CurrentUser (FromRequestParts)
+    handlers.rs        # GET/POST /login, POST /logout
   campaigns/           # one module per feature: handlers.rs + db.rs (queries) + model.rs
   scheduling/
   game_sessions/
@@ -190,10 +196,18 @@ The VPN is the outer wall, but we still need to know *who* is voting.
 
 - Username + password, Argon2 hash, random session token in an `HttpOnly`, `SameSite=Lax` cookie,
   stored in `auth_sessions`.
+  - The token is 32 random bytes, hex-encoded.
+  - The cookie is named `session`, with `Path=/`.
+  - The cookie is not `Secure`, because it's served over plain HTTP inside the VPN.
+  - The cookie is long-lived; the real limit is `expires_at`, 30 days after login.
+  - Expired rows are rejected on lookup and deleted on the next login.
+  - Logout deletes the row and expires the cookie.
 - A `CurrentUser` axum extractor loads the user from the cookie and redirects to `/login` if
   missing. Handlers that take `CurrentUser` as an argument are authenticated automatically.
-- First admin is created by a CLI subcommand: `ttrpg-scheduling create-admin <username>`.
+- First admin is created by a CLI subcommand:
+  `ttrpg-scheduling create-admin <username> <display_name>`. It reads the password from stdin.
 - CSRF: `SameSite=Lax` plus checking the `Origin` header on non-GET requests is enough here.
+  The `Origin` check is not implemented yet.
 
 ### 5.2 Invitations and registration
 
@@ -359,7 +373,7 @@ next to it.
 | M0 | `cargo new`, axum "hello world"; **cross-compile it and run it on the Pi** | Cargo, crates, `async`/`.await`, `#[tokio::main]`, targets & release profile | done |
 | M1 | `AppState`, minijinja base template, static files, `tracing` request logs | `Arc`, the `State` extractor, `Result` + `map_err` + `?`, closures, `use`/paths/prelude, `Display` vs `Debug` | done |
 | M2 | SQLite pool, first migration (`users`), `AppError`, config from env, `main` returning `Result` | enums with data + exhaustive `match`, implementing traits (`Display`, `Error` + `source()`, `From`, `IntoResponse`), trait objects, `?` + `From`, `thiserror` vs `anyhow`, modules, builder pattern, `FromStr`/`parse`, `&str` params, compile-time-checked SQL | done |
-| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | traits (`FromRequestParts`), `Option`, cookies, argon2, CLI args | |
+| M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | code done, Pi pending |
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |

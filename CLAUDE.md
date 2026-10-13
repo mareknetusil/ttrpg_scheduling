@@ -17,8 +17,12 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
   `sqlx` 0.9 + SQLite (features `runtime-tokio`, `sqlite`; SQLite is bundled C code),
   `thiserror` (typed `AppError`) + `anyhow` (startup/glue errors), `dotenvy` (`.env` in dev),
   `minijinja` 3 (server-side templates; v3 differs from the many v2 examples online:
-  `path_loader` needs no feature flag, serde support is the opt-in `serde` feature).
-  Planned: `pulldown-cmark` + `ammonia` (Markdown), `argon2` (passwords), `chrono` (time).
+  `path_loader` needs no feature flag, serde support is the opt-in `serde` feature, which is
+  enabled. Pass a struct to a template as `minijinja::value::Serde(&x)`; `context!` doesn't
+  convert structs on its own).
+  Auth: `argon2` (password hashing), `rand` (session tokens), `axum-extra` (feature `cookie`,
+  `CookieJar`), `serde` (`Form` structs, template values), `clap` (the `create-admin` subcommand).
+  Planned: `pulldown-cmark` + `ammonia` (Markdown), `chrono` (time).
 - **Frontend:** server-rendered HTML + htmx + Alpine.js + plain CSS. No JS build step, no SPA.
 
 ## How we work together (important)
@@ -67,14 +71,27 @@ this project**. The repo has two modes of collaboration.
 
 ## Code map
 
-- `src/main.rs`: startup (dotenv, config, logging, templates, DB, router, serve), `AppState`,
-  handlers (until they move into feature modules).
+- `src/main.rs`: loads dotenv, parses the CLI, then sets up config, logging and DB. It then
+  runs either `cli::create_admin` or `serve()`. `serve()` does the templates, `AppState`, router
+  and serve. The `index` handler still lives here.
+- `src/cli.rs`: clap `Cli`/`Command` and `create_admin()`, which reads the password from stdin
+  and inserts an admin user.
+- `src/auth/`:
+  - `password.rs`: argon2 `hash`/`verify` in `spawn_blocking`.
+  - `session.rs`: `create` (random token, 30-day expiry, deletes expired rows) and `remove`.
+  - `extractor.rs`: `CurrentUser`. A handler argument of this type requires login, and its
+    absence produces `AppError::Unauthorized`, which redirects to `/login`.
+  - `handlers.rs`: `GET`/`POST /login`, `POST /logout`. The cookie is named `session`, with
+    `Path=/`.
+- Pages for logged-in users pass `current_user => Serde(&user)`; `base.html` uses it for the nav.
 - `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to
   `0.0.0.0:8080`. `.env` is optional (dev only); see `.env.example`.
 - `src/db.rs`: `connect()` builds the SQLite pool (WAL, `synchronous=NORMAL`, max 4 connections)
   and runs the embedded migrations.
-- `src/error.rs`: `AppError` (thiserror) + `IntoResponse`. Internal errors are logged and returned
-  as a generic 500; the response body never contains internal error text.
+- `src/error.rs`: `AppError` (thiserror) + `IntoResponse`. Internal errors (`Template`,
+  `Database`, `Internal` wrapping `anyhow::Error`) are logged and returned as a generic 500; the
+  response body never contains internal error text. `NotFound` returns a 404, and `Unauthorized`
+  redirects to `/login`.
 - `build.rs`: makes cargo rebuild when `migrations/` changes (needed by `sqlx::migrate!()`).
 
 ## Commands
@@ -90,6 +107,7 @@ sqlx database setup            # create data/dev.db and run migrations
 cargo run                      # dev server on 0.0.0.0:8080 (run from repo root: templates/ and
                                # static/ are resolved relative to the working directory)
 RUST_LOG=debug cargo run       # override the default log filter "info,tower_http=debug"
+cargo run -- create-admin <username> "<Display Name>"   # create an admin (prompts for password)
 cargo check                    # fast type check
 cargo clippy --all-targets     # lints, keep warnings at zero
 cargo fmt                      # format

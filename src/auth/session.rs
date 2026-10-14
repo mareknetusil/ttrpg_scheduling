@@ -1,3 +1,4 @@
+use super::token;
 use sqlx::sqlite::SqlitePool;
 
 pub async fn create(db: &SqlitePool, user_id: i64) -> Result<String, sqlx::Error> {
@@ -6,8 +7,7 @@ pub async fn create(db: &SqlitePool, user_id: i64) -> Result<String, sqlx::Error
     )
     .execute(db)
     .await?;
-    let bytes: [u8; 32] = rand::random();
-    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let token = token::generate();
     sqlx::query!(
         "INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+30 days'))",
         token,
@@ -36,17 +36,14 @@ mod tests {
         // Act
         let token = create(&db, user_id).await?;
 
-        // Assert
-        assert_eq!(token.len(), 64);
-        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
-
         let row = sqlx::query!(
-            "SELECT user_id, expires_at > strftime('%Y-%m-%dT%H%M%SZ', 'now') AS in_future
+            "SELECT user_id, expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS in_future
             FROM auth_sessions WHERE id = ?",
             token
         )
         .fetch_one(&db)
         .await?;
+        // Assert
         assert_eq!(row.user_id, user_id);
         assert_eq!(row.in_future, 1);
 

@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.5 (2026-10-13). Progress: M0–M3 done, M4 next.
+Status: draft v0.6 (2026-10-14). Progress: M0–M3 done, M4 in progress.
 
 ## 1. Goals and non-goals
 
@@ -93,6 +93,7 @@ src/
   game_sessions/
   comments/
   polls/
+tests/                 # (M11) end-to-end tests against the real app; see §10.1
 templates/
   base.html
   campaigns/...
@@ -382,7 +383,58 @@ version is worth using.
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | |
-| M10 | Integration tests, systemd hardening, backups, deploy script polish | `#[sqlx::test]`, `tower::ServiceExt::oneshot`, release profile | |
+| M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | |
+| M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | |
+
+### 10.1 M11: end-to-end tests (plan)
+
+**Why:** most checks during M3–M4 were manual (`curl` with a cookie, `grep` on the HTML,
+permission 404s, form re-render on error). A typo in a template name (`"campaigns/html"`) compiled
+fine and only failed when that branch ran. Tests that drive the real app over HTTP catch this
+class of bug, which the compiler can't.
+
+**What Rust backend developers usually do** (from most to least common):
+
+1. **In-process tests of the router.** Build the `Router` in the test and call it directly with
+   `tower::ServiceExt::oneshot(request)`, with no network involved. This is what the axum examples
+   do. `axum-test` (`TestServer`) wraps it with a friendlier API: cookies, form posts, assertions.
+2. **Spawn the real server on a random port** (`TcpListener::bind("127.0.0.1:0")`) inside the
+   test and drive it with `reqwest`. This is the "black-box" style popularized by *Zero To
+   Production in Rust* (a `spawn_app()` helper). It's the closest to how a user hits the app, and
+   still runs as plain `cargo test`.
+3. **Browser tests**, needed only where JavaScript matters (htmx swaps, Alpine state).
+   - **Rust options:** WebDriver clients `thirtyfour` and `fantoccini`, which need geckodriver or
+     chromedriver running, or `chromiumoxide`/`headless_chrome`, which drive Chrome over the
+     DevTools protocol.
+   - **Playwright:** there's no official Playwright for Rust. Many Rust projects simply use
+     Playwright from TypeScript or Python for this layer; for example, the Leptos templates ship an
+     `end2end/` Playwright folder.
+
+**Plan for this project:**
+
+- **Refactor so tests can build the app.**
+  - **Library + binary:** integration tests in `tests/` can only `use` a **library** crate, never
+    `main.rs`. Move everything except `main()` into `src/lib.rs`, so the package becomes a library
+    plus a thin binary.
+  - **A router builder:** split `serve()` into a function that builds the `Router` from an
+    `AppState`, and the part that binds and serves.
+- **HTTP-level E2E in Rust (the bulk of the tests).**
+  - **The app:** use style 2, the real server on a random port. Each test gets a fresh migrated
+    DB from `#[sqlx::test]`, which is passed into `AppState`.
+  - **Requests:** a `reqwest::Client` with `cookie_store(true)` keeps the login session.
+  - **Assertions:** `scraper` parses the returned HTML and checks it with CSS selectors.
+  - **Fixtures:** small helpers that create a user, log in and create a campaign, like pytest
+    fixtures.
+  - **What it covers:** status codes, redirects, the permission matrix (§5.3), form errors and
+    escaping. Every template branch should be rendered at least once.
+- **Browser E2E (a handful).**
+  - **What it covers:** the htmx voting grid (M6) and the other JS-dependent flows.
+  - **The tool:** `thirtyfour` against a headless Firefox or Chrome, to learn the Rust way.
+    Comparing it with Playwright from Python is part of the milestone.
+  - **Running them:** these tests need an external driver process, so mark them `#[ignore]` and run
+    them with `cargo test -- --ignored`.
+- **Optional:** `cargo-nextest` as a faster test runner, and `insta` snapshot tests for rendered
+  templates.
 
 ## 11. Later ideas
 

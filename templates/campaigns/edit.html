@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "campaigns/_form.html" import campaign_form %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }, the campaign as stored (heading, URLs)
+     form          { name, system, tagline, description_md }, the values to show:
+                   the stored campaign on GET, the submitted values after a failed POST
+     error         optional string, shown above the form #}
+
+{% block title %}Edit {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+  <h1>Edit campaign</h1>
+
+  <div class="card">
+    {{ campaign_form("/campaigns/" ~ campaign.id, "Save changes", "/campaigns/" ~ campaign.id, form, error) }}
+  </div>
+</section>
+{% endblock %}

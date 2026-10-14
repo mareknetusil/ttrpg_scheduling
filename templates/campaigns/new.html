@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "campaigns/_form.html" import campaign_form %}
 
 {# Context:
      current_user  required (nav)
@@ -13,40 +14,7 @@
   <p class="muted">You'll be the GM. You can hand the role to another member later.</p>
 
   <div class="card">
-    {% if error %}
-      <p class="alert alert--error" role="alert">{{ error }}</p>
-    {% endif %}
-
-    <form method="post" action="/campaigns" class="form">
-      <div class="field">
-        <label for="name">Name</label>
-        <input id="name" name="name" type="text" required maxlength="100"
-               value="{{ form.name if form else "" }}" autofocus>
-      </div>
-
-      <div class="field">
-        <label for="system">Rule system</label>
-        <input id="system" name="system" type="text" required maxlength="100"
-               placeholder="D&amp;D 5e, Pathfinder 2e, Call of Cthulhu…"
-               value="{{ form.system if form else "" }}">
-      </div>
-
-      <div class="field">
-        <label for="tagline">Tagline <span class="muted">(optional)</span></label>
-        <input id="tagline" name="tagline" type="text" maxlength="200"
-               value="{{ form.tagline if form else "" }}">
-      </div>
-
-      <div class="field">
-        <label for="description_md">Description <span class="muted">(optional, Markdown)</span></label>
-        <textarea id="description_md" name="description_md" rows="8">{{ form.description_md if form else "" }}</textarea>
-      </div>
-
-      <div class="row">
-        <button type="submit" class="button">Create campaign</button>
-        <a href="/">Cancel</a>
-      </div>
-    </form>
+    {{ campaign_form("/campaigns", "Create campaign", "/", form, error) }}
   </div>
 </section>
 {% endblock %}

@@ -7,7 +7,7 @@ use axum::{
     extract::{Form, Path, State},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use minijinja::context;
+use minijinja::{context, value::Serde};
 use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
 
@@ -16,7 +16,25 @@ pub async fn new_form(
     user: CurrentUser,
 ) -> Result<Html<String>, AppError> {
     let template = state.templates.get_template("campaigns/new.html")?;
-    let body = template.render(context! { current_user => minijinja::value::Serde(user)})?;
+    let body = template.render(context! { current_user => Serde(&user)})?;
+    Ok(Html(body))
+}
+
+pub async fn edit_form(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Html<String>, AppError> {
+    let (campaign, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    let template = state.templates.get_template("campaigns/edit.html")?;
+    let body = template.render(context! {
+        current_user => Serde(&user),
+        campaign => Serde(&campaign),
+        form => Serde(&campaign)
+    })?;
     Ok(Html(body))
 }
 
@@ -25,21 +43,43 @@ pub async fn create(
     user: CurrentUser,
     Form(mut form): Form<CampaignForm>,
 ) -> Result<Response, AppError> {
-    form.name = form.name.trim().to_string();
-    form.system = form.system.trim().to_string();
-    form.tagline = form.tagline.trim().to_string();
-    form.description_md = form.description_md.trim().to_string();
+    form.trim();
 
-    if form.name.is_empty() || form.system.is_empty() {
+    if let Some(error) = form.error() {
         let template = state.templates.get_template("campaigns/new.html")?;
         let body = template.render(context! {
-            current_user => minijinja::value::Serde(user),
-            form => minijinja::value::Serde(form),
-            error => "Fill campaign name and rule system!"
+            current_user => Serde(&user),
+            form => Serde(&form),
+            error
         })?;
         return Ok(Html(body).into_response());
     }
     let id = db::create(&state.db, &form, user.id).await?;
+    Ok(Redirect::to(&format!("/campaigns/{id}")).into_response())
+}
+
+pub async fn update(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+    Form(mut form): Form<CampaignForm>,
+) -> Result<Response, AppError> {
+    let (campaign, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    form.trim();
+    if let Some(error) = form.error() {
+        let template = state.templates.get_template("campaigns/edit.html")?;
+        let body = template.render(context! {
+            current_user => Serde(&user),
+            form => Serde(&form),
+            campaign => Serde(&campaign),
+            error
+        })?;
+        return Ok(Html(body).into_response());
+    }
+    db::update(&state.db, id, &form).await?;
     Ok(Redirect::to(&format!("/campaigns/{id}")).into_response())
 }
 
@@ -51,8 +91,8 @@ pub async fn show(
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     let template = state.templates.get_template("campaigns/show.html")?;
     let body = template.render(context! {
-        current_user => minijinja::value::Serde(&user),
-        campaign => minijinja::value::Serde(&campaign),
+        current_user => Serde(&user),
+        campaign => Serde(&campaign),
         can_manage => access.can_manage()
     })?;
     Ok(Html(body))

@@ -6,6 +6,20 @@ pub struct CampaignForm {
     pub description_md: String,
 }
 
+impl CampaignForm {
+    pub fn trim(&mut self) {
+        self.name = self.name.trim().to_string();
+        self.system = self.system.trim().to_string();
+        self.tagline = self.tagline.trim().to_string();
+        self.description_md = self.description_md.trim().to_string();
+    }
+
+    pub fn error(&self) -> Option<&'static str> {
+        (self.name.is_empty() || self.system.is_empty())
+            .then_some("Fill campaign name and rule system!")
+    }
+}
+
 #[derive(serde::Serialize)]
 pub struct CampaignSummary {
     pub id: i64,

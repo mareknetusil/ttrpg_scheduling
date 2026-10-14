@@ -31,6 +31,20 @@ pub async fn create(db: &SqlitePool, form: &CampaignForm, user_id: i64) -> anyho
     Ok(new_id)
 }
 
+pub async fn update(db: &SqlitePool, id: i64, form: &CampaignForm) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE campaigns SET name = ?, system = ?, tagline = ?, description_md = ? WHERE id = ?",
+        form.name,
+        form.system,
+        form.tagline,
+        form.description_md,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<CampaignSummary>, sqlx::Error> {
     sqlx::query_as!(
         CampaignSummary,

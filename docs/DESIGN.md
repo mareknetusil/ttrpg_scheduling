@@ -253,7 +253,10 @@ GET  /                                                 # dashboard: my campaigns
 GET  /campaigns/new, POST /campaigns
 GET  /campaigns/{id}                                   # overview: description, next session, open polls
 GET  /campaigns/{id}/edit, POST /campaigns/{id}
-GET  /campaigns/{id}/members, POST /campaigns/{id}/invites, POST /campaigns/{id}/members/{uid}/remove
+GET  /campaigns/{id}/members                           # member list (members); invites, remove, GM (GM/admin)
+POST /campaigns/{id}/invites, DELETE /campaigns/{id}/invites/{invite_id}   # DELETE via htmx (revoke)
+DELETE /campaigns/{id}/members/{uid}                   # htmx: GM/admin removes a member, or a member leaves
+POST /campaigns/{id}/gm                                # reassign the GM (field user_id)
 GET  /campaigns/{id}/pages/{slug}, (new|edit|save) …
 GET  /campaigns/{id}/history                           # list of game sessions
 
@@ -277,8 +280,10 @@ POST /polls/{id}/close
 POST /markdown/preview                                 # (fragment) for the editor preview tab
 ```
 
-Plain HTML forms only send GET/POST, hence the `POST .../delete` style. `PUT` is fine where htmx
-sends it.
+Deletes and in-place updates use the real HTTP method through htmx (`hx-delete`, `hx-put`); the
+handler answers with a fragment, an empty 200 (with `hx-swap="delete"`), or an `HX-Redirect`
+header. Plain forms (POST, then a 303 redirect) are for creating things and for edits that reload
+the page.
 
 Template context conventions: every page gets `current_user` (no CSRF tokens needed, see §5.1). Markdown
 fields are passed as `<name>_html` (already sanitized). Datetimes are passed already converted to

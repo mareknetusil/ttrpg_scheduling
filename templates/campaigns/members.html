@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav; "you" marker and the Leave button)
+     campaign      { id, name, gm_user_id, ... }
+     can_manage    bool: GM or site admin (invites, remove, change GM)
+     members       list of { user_id, username, display_name, joined_at }
+     invites       list of { id, token, expires_at, max_uses, use_count }: only the usable ones
+                   (not expired, not used up). Needed only when can_manage.
+     error         optional string, shown at the top (e.g. "Pick a member to make GM.")
+
+   Requests:
+     POST   /campaigns/{id}/invites              form, field max_uses (1-20); redirects back here
+     DELETE /campaigns/{id}/invites/{invite_id}  htmx, revoke; 200 with an empty body removes the row
+     DELETE /campaigns/{id}/members/{uid}        htmx: GM/admin removes a member (200, empty body:
+                                                 the row is removed), or a member leaves
+                                                 (response header HX-Redirect: /)
+     POST   /campaigns/{id}/gm                   form, field user_id: the new GM; redirects back here
+   Confirmation texts are plain HTML attributes (hx-confirm, data-confirm), never built into a
+   JS string. #}
+
+   Timestamps are UTC ISO strings for now; only the date part is shown.
+
+{% block title %}Members · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+<h1>Members</h1>
+
+{% if error %}
+  <p class="alert alert--error" role="alert">{{ error }}</p>
+{% endif %}
+
+<section class="card">
+  <ul class="member-list">
+    {% for m in members %}
+      <li class="member">
+        <span class="member__name">
+          <strong>{{ m.display_name }}</strong>
+          <span class="muted">@{{ m.username }}</span>
+          {% if m.user_id == campaign.gm_user_id %}<span class="badge">GM</span>{% endif %}
+          {% if m.user_id == current_user.id %}<span class="muted">(you)</span>{% endif %}
+        </span>
+        <span class="muted member__since">since {{ m.joined_at[:10] }}</span>
+        {% if m.user_id != campaign.gm_user_id %}
+          {% if m.user_id == current_user.id %}
+            <button type="button" class="link-button link-button--danger"
+                    hx-delete="/campaigns/{{ campaign.id }}/members/{{ m.user_id }}"
+                    hx-confirm="Leave {{ campaign.name }}?">Leave</button>
+          {% elif can_manage %}
+            <button type="button" class="link-button link-button--danger"
+                    hx-delete="/campaigns/{{ campaign.id }}/members/{{ m.user_id }}"
+                    hx-target="closest li" hx-swap="delete"
+                    hx-confirm="Remove {{ m.display_name }} from the campaign?">Remove</button>
+          {% endif %}
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% if campaign.gm_user_id == current_user.id %}
+    <p class="muted small">As GM you can't leave; hand the role to another member first.</p>
+  {% endif %}
+</section>
+
+{% if can_manage %}
+  <section class="card">
+    <h2>Invite links</h2>
+    <p class="muted">Anyone with a link can join until it expires (14 days) or is used up. Send it only to the people you mean.</p>
+
+    {% if invites %}
+      <ul class="invite-list">
+        {% for inv in invites %}
+          <li class="invite" x-data="{ copied: false, url: location.origin + '/invite/{{ inv.token }}' }">
+            <code class="invite__url" x-text="url">/invite/{{ inv.token }}</code>
+            <span class="muted">{{ inv.use_count }}/{{ inv.max_uses }} used · expires {{ inv.expires_at[:10] }}</span>
+            <span class="invite__actions">
+              <button type="button" class="button button--secondary"
+                      @click="navigator.clipboard.writeText(url).then(() => { copied = true; setTimeout(() => copied = false, 1500) })"
+                      x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+              <button type="button" class="link-button link-button--danger"
+                      hx-delete="/campaigns/{{ campaign.id }}/invites/{{ inv.id }}"
+                      hx-target="closest li" hx-swap="delete"
+                      hx-confirm="Revoke this invite link?">Revoke</button>
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No active invite links.</p>
+    {% endif %}
+
+    <form method="post" action="/campaigns/{{ campaign.id }}/invites" class="inline-form">
+      <label for="max_uses">New link for</label>
+      <input id="max_uses" name="max_uses" type="number" min="1" max="20" value="1" required>
+      <span>player(s)</span>
+      <button type="submit" class="button">Create link</button>
+    </form>
+  </section>
+
+  {% if members|length > 1 %}
+    <section class="card">
+      <h2>Game master</h2>
+      <form method="post" action="/campaigns/{{ campaign.id }}/gm" class="inline-form"
+            data-confirm="Hand the GM role to the selected member?" onsubmit="return confirm(this.dataset.confirm)">
+        <label for="gm_user_id">Hand the GM role to</label>
+        <select id="gm_user_id" name="user_id" required>
+          <option value="" disabled selected>Choose a member…</option>
+          {% for m in members if m.user_id != campaign.gm_user_id %}
+            <option value="{{ m.user_id }}">{{ m.display_name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="button button--secondary">Change GM</button>
+      </form>
+    </section>
+  {% endif %}
+{% endif %}
+{% endblock %}

@@ -3,7 +3,7 @@
 {# Context:
      current_user  required (nav)
      campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
-     can_manage    bool: GM of this campaign or site admin (shows Edit / Members)
+     can_manage    bool: GM of this campaign or site admin (shows Edit)
    description_md is shown as plain escaped text until Markdown rendering arrives in M5. #}
 
 {% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
@@ -19,12 +19,12 @@
       {% if campaign.gm_user_id == current_user.id %}you{% else %}{{ campaign.gm_name }}{% endif %}
     </p>
   </div>
-  {% if can_manage %}
-    <div class="row">
-      <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/members">Members</a>
+  <div class="row">
+    <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/members">Members</a>
+    {% if can_manage %}
       <a class="button" href="/campaigns/{{ campaign.id }}/edit">Edit</a>
-    </div>
-  {% endif %}
+    {% endif %}
+  </div>
 </section>
 
 {% if campaign.tagline %}

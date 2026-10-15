@@ -277,6 +277,50 @@ a.button { text-decoration: none; }
 /* Unrendered Markdown: keep the author's line breaks, wrap long lines */
 .prose-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* ---------- Members page ---------- */
+.member-list, .invite-list { list-style: none; margin: 0; padding: 0; }
+.member, .invite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.member:last-child, .invite:last-child { border-bottom: 0; }
+.member__name { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 12rem; }
+.member form, .invite form { margin: 0; }
+.invite__url {
+  flex: 1 1 100%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.invite__actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.inline-form input, .inline-form select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.inline-form input[type="number"] { width: 5rem; }
+
+.link-button--danger { color: var(--danger); }
+.link-button--danger:hover { color: var(--danger); text-decoration: underline; }
+.small { font-size: 0.875rem; }
+
 .empty { text-align: center; }
 .empty p { margin: var(--space-1) 0; }
 

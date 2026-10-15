@@ -1,4 +1,4 @@
-use super::model::{Campaign, CampaignForm, CampaignSummary};
+use super::model::{Campaign, CampaignForm, CampaignSummary, Invite, Member};
 use anyhow::Context;
 use sqlx::sqlite::SqlitePool;
 
@@ -72,4 +72,81 @@ pub async fn is_member(
         campaign_id,
         user_id
     ).fetch_one(db).await
+}
+
+pub async fn members(db: &SqlitePool, campaign_id: i64) -> Result<Vec<Member>, sqlx::Error> {
+    sqlx::query_as!(
+        Member,
+        "SELECT u.id AS user_id, u.username, u.display_name, m.joined_at FROM users AS u JOIN campaign_members as m ON m.user_id = u.id WHERE m.campaign_id = ? ORDER BY u.display_name",
+        campaign_id
+    ).fetch_all(db).await
+}
+
+pub async fn invites(db: &SqlitePool, campaign_id: i64) -> Result<Vec<Invite>, sqlx::Error> {
+    sqlx::query_as!(
+        Invite,
+        "SELECT id, token, expires_at, max_uses, use_count FROM campaign_invites WHERE campaign_id = ? AND expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AND use_count < max_uses ORDER BY created_at",
+        campaign_id
+    ).fetch_all(db).await
+}
+
+pub async fn create_invite(
+    db: &SqlitePool,
+    campaign_id: i64,
+    user_id: i64,
+    max_uses: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM campaign_invites WHERE expires_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now') OR use_count >= max_uses"
+    ).execute(db).await?;
+    let token = crate::auth::token::generate();
+    sqlx::query!(
+        "INSERT INTO campaign_invites (campaign_id, token, created_by, max_uses) VALUES (?, ?, ?, ?) ",
+        campaign_id,
+        token,
+        user_id,
+        max_uses
+    ).execute(db).await?;
+    Ok(())
+}
+
+pub async fn delete_invite(
+    db: &SqlitePool,
+    campaign_id: i64,
+    invite_id: i64,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "DELETE FROM campaign_invites WHERE id = ? AND campaign_id = ?",
+        invite_id,
+        campaign_id
+    )
+    .execute(db)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn remove_member(
+    db: &SqlitePool,
+    campaign_id: i64,
+    user_id: i64,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "DELETE FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
+        campaign_id,
+        user_id
+    )
+    .execute(db)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn set_gm(db: &SqlitePool, campaign_id: i64, user_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE campaigns SET gm_user_id = ? WHERE id = ?",
+        user_id,
+        campaign_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

@@ -59,3 +59,30 @@ impl Access {
         self.is_admin || matches!(self.role, Some(Role::Gm))
     }
 }
+
+#[derive(serde::Serialize)]
+pub struct Member {
+    pub user_id: i64,
+    pub username: String,
+    pub display_name: String,
+    pub joined_at: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct Invite {
+    pub id: i64,
+    pub token: String,
+    pub expires_at: String,
+    pub max_uses: i64,
+    pub use_count: i64,
+}
+
+#[derive(serde::Deserialize)]
+pub struct InviteForm {
+    pub max_uses: i64,
+}
+
+#[derive(serde::Deserialize)]
+pub struct GmForm {
+    pub user_id: i64,
+}

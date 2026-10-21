@@ -1,6 +1,7 @@
 {% from "_markdown.html" import markdown_field %}
 {# Shared campaign form (new + edit).
-   form   optional { name, system, tagline, description_md }, the values to show
+   form   optional { name, system, tagline, description_md, accent }, the values to show
+   accents (global) the card colours to offer; accent "" = default border
    error  optional string, shown above the fields #}
 {% macro campaign_form(action, submit_label, cancel_href, form=none, error=none) %}
   {% if error %}
@@ -28,6 +29,23 @@
     </div>
 
     {{ markdown_field("description_md", "Description", form.description_md if form else "", rows=10) }}
+
+    {% set current_accent = form.accent if form and form.accent else "" %}
+    <fieldset class="field accent-picker">
+      <legend>Card colour <span class="muted">(the border of the campaign's card on the dashboard)</span></legend>
+      <div class="accent-picker__swatches">
+        <label class="swatch swatch--default" title="Default">
+          <input type="radio" name="accent" value="" {% if not current_accent %}checked{% endif %}>
+          <span><span class="visually-hidden">Default</span></span>
+        </label>
+        {% for a in accents %}
+          <label class="swatch accent--{{ a }}" title="{{ a|capitalize }}">
+            <input type="radio" name="accent" value="{{ a }}" {% if a == current_accent %}checked{% endif %}>
+            <span><span class="visually-hidden">{{ a|capitalize }}</span></span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
 
     <div class="row">
       <button type="submit" class="button">{{ submit_label }}</button>

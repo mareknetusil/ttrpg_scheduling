@@ -390,14 +390,29 @@ async fn deleting_a_campaign_needs_the_typed_name(db: SqlitePool) {
     b.login("ada").await;
     b.goto(&format!("/admin/campaigns/{id}/delete")).await;
     let button = b.el(".danger-zone button[type=submit]").await;
-    assert!(!button.is_enabled().await.unwrap(), "disabled before typing");
-    b.el("#confirm_name").await.send_keys("Doomed").await.unwrap();
-    assert!(!button.is_enabled().await.unwrap(), "disabled for a partial name");
-    b.el("#confirm_name").await.send_keys(" \"one\"").await.unwrap();
+    assert!(
+        !button.is_enabled().await.unwrap(),
+        "disabled before typing"
+    );
+    b.el("#confirm_name")
+        .await
+        .send_keys("Doomed")
+        .await
+        .unwrap();
+    assert!(
+        !button.is_enabled().await.unwrap(),
+        "disabled for a partial name"
+    );
+    b.el("#confirm_name")
+        .await
+        .send_keys(" \"one\"")
+        .await
+        .unwrap();
     button.wait_until().enabled().await.unwrap();
     button.click().await.unwrap();
     // HX-Redirect to the campaign list
-    b.el(".admin-tabs a[aria-current='page'][href='/admin/campaigns']").await;
+    b.el(".admin-tabs a[aria-current='page'][href='/admin/campaigns']")
+        .await;
     assert_eq!(app.scalar("SELECT COUNT(*) FROM campaigns").await, 0);
     b.quit().await;
 }

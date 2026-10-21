@@ -140,6 +140,24 @@ impl User {
         Resp::from(r.unwrap()).await
     }
 
+    /// A multipart upload of one file field.
+    pub async fn upload(&self, path: &str, field: &str, file_name: &str, data: Vec<u8>) -> Resp {
+        let part = reqwest::multipart::Part::bytes(data).file_name(file_name.to_string());
+        let form = reqwest::multipart::Form::new().part(field.to_string(), part);
+        let r = self
+            .client
+            .post(self.url(path))
+            .multipart(form)
+            .send()
+            .await;
+        Resp::from(r.unwrap()).await
+    }
+
+    /// The raw response (for non-HTML bodies such as images).
+    pub async fn get_raw(&self, path: &str) -> reqwest::Response {
+        self.client.get(self.url(path)).send().await.unwrap()
+    }
+
     pub async fn delete(&self, path: &str) -> Resp {
         self.htmx(reqwest::Method::DELETE, path, &[]).await
     }

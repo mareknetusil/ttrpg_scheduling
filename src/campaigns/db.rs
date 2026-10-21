@@ -1,15 +1,16 @@
-use super::model::{Campaign, CampaignForm, CampaignSummary, Invite, Member};
+use super::model::{Banner, Campaign, CampaignForm, CampaignSummary, Invite, Member};
 use anyhow::Context;
 use sqlx::sqlite::SqlitePool;
 
 pub async fn create(db: &SqlitePool, form: &CampaignForm, user_id: i64) -> anyhow::Result<i64> {
     let mut tx = db.begin().await?;
     let new_id = sqlx::query!(
-        "INSERT INTO campaigns (name, system, tagline, description_md, gm_user_id, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO campaigns (name, system, tagline, description_md, accent, gm_user_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
         form.name,
         form.system,
         form.tagline,
         form.description_md,
+        form.accent,
         user_id,
         user_id
     )
@@ -33,11 +34,12 @@ pub async fn create(db: &SqlitePool, form: &CampaignForm, user_id: i64) -> anyho
 
 pub async fn update(db: &SqlitePool, id: i64, form: &CampaignForm) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE campaigns SET name = ?, system = ?, tagline = ?, description_md = ? WHERE id = ?",
+        "UPDATE campaigns SET name = ?, system = ?, tagline = ?, description_md = ?, accent = ? WHERE id = ?",
         form.name,
         form.system,
         form.tagline,
         form.description_md,
+        form.accent,
         id
     )
     .execute(db)
@@ -48,18 +50,31 @@ pub async fn update(db: &SqlitePool, id: i64, form: &CampaignForm) -> Result<(),
 pub async fn for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<CampaignSummary>, sqlx::Error> {
     sqlx::query_as!(
         CampaignSummary,
-        r#"SELECT c.id, c.name, c.system, c.tagline, c.gm_user_id = m.user_id AS "is_gm: bool" FROM campaign_members AS m JOIN campaigns AS c ON m.campaign_id = c.id WHERE m.user_id = ? AND c.archived_at IS NULL ORDER BY c.name"#,
+        r#"SELECT c.id, c.name, c.system, c.tagline, c.gm_user_id = m.user_id AS "is_gm: bool",
+                  c.accent, b.updated_at AS "banner_version?"
+           FROM campaign_members AS m
+           JOIN campaigns AS c ON m.campaign_id = c.id
+           LEFT JOIN campaign_banners AS b ON b.campaign_id = c.id
+           WHERE m.user_id = ? AND c.archived_at IS NULL ORDER BY c.name"#,
         user_id
-    ).fetch_all(db)
+    )
+    .fetch_all(db)
     .await
 }
 
 pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<Campaign>, sqlx::Error> {
     sqlx::query_as!(
         Campaign,
-        r#"SELECT c.id, c.name, c.system, c.tagline, c.description_md, c.gm_user_id, u.display_name as gm_name FROM campaigns AS c JOIN users AS u ON c.gm_user_id = u.id WHERE c.id = ?"#,
+        r#"SELECT c.id, c.name, c.system, c.tagline, c.description_md, c.gm_user_id,
+                  u.display_name as gm_name, c.accent, b.updated_at AS "banner_version?"
+           FROM campaigns AS c
+           JOIN users AS u ON c.gm_user_id = u.id
+           LEFT JOIN campaign_banners AS b ON b.campaign_id = c.id
+           WHERE c.id = ?"#,
         id
-    ).fetch_optional(db).await
+    )
+    .fetch_optional(db)
+    .await
 }
 
 pub async fn is_member(
@@ -202,6 +217,7 @@ pub async fn delete(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error
         "DELETE FROM game_sessions WHERE campaign_id = ?",
         "DELETE FROM campaign_pages WHERE campaign_id = ?",
         "DELETE FROM campaign_invites WHERE campaign_id = ?",
+        "DELETE FROM campaign_banners WHERE campaign_id = ?",
         "DELETE FROM campaign_members WHERE campaign_id = ?",
         "DELETE FROM campaigns WHERE id = ?",
     ];
@@ -209,5 +225,44 @@ pub async fn delete(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error
         sqlx::query(sql).bind(campaign_id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
+    Ok(())
+}
+
+pub async fn banner(db: &SqlitePool, campaign_id: i64) -> Result<Option<Banner>, sqlx::Error> {
+    sqlx::query_as!(
+        Banner,
+        "SELECT content_type, data FROM campaign_banners WHERE campaign_id = ?",
+        campaign_id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn set_banner(
+    db: &SqlitePool,
+    campaign_id: i64,
+    content_type: &str,
+    data: &[u8],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO campaign_banners (campaign_id, content_type, data) VALUES (?, ?, ?)
+         ON CONFLICT (campaign_id) DO UPDATE SET content_type = excluded.content_type,
+             data = excluded.data, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+        campaign_id,
+        content_type,
+        data
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_banner(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM campaign_banners WHERE campaign_id = ?",
+        campaign_id
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }

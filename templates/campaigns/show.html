@@ -2,7 +2,8 @@
 
 {# Context:
      current_user  required (nav)
-     campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
+     campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name, accent,
+                   banner_version (set when there's a banner) }
      description_html  the description rendered from Markdown and sanitized (safe to output)
      can_manage    bool: the GM of this campaign (shows Edit, New page, …)
      is_member     bool: false for a site admin looking at a campaign they're not in
@@ -18,6 +19,10 @@
 
 {% block content %}
 <p class="breadcrumb"><a href="/">← Campaigns</a></p>
+{% if campaign.banner_version %}
+  <img class="campaign-banner{% if campaign.accent %} accent--{{ campaign.accent }}{% endif %}"
+       src="/campaigns/{{ campaign.id }}/banner?v={{ campaign.banner_version }}" alt="">
+{% endif %}
 
 <section class="page-head">
   <div>

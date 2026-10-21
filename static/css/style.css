@@ -256,6 +256,81 @@ a.button { text-decoration: none; }
   text-decoration: none;
 }
 .campaign-card:hover { border-color: var(--accent); }
+/* A chosen card colour: a stronger border in that colour (also on hover) */
+.campaign-card[class*="accent--"] { border-color: var(--card-accent); border-width: 2px; }
+.campaign-card[class*="accent--"]:hover { box-shadow: 0 0 0 1px var(--card-accent); }
+.campaign-card.has-banner { padding-top: 0; overflow: hidden; }
+.campaign-card__banner {
+  display: block;
+  width: calc(100% + 2 * var(--space-4));
+  margin: 0 calc(-1 * var(--space-4)) var(--space-2);
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  background: var(--bg);
+}
+.campaign-banner {
+  display: block;
+  width: 100%;
+  max-height: 14rem;
+  aspect-ratio: 4 / 1;
+  object-fit: cover;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.campaign-banner[class*="accent--"] { border: 2px solid var(--card-accent); }
+.banner-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
+}
+
+/* Card colours (the palette in campaigns::model::ACCENTS), readable in light and dark mode */
+.accent--red { --card-accent: #c0392b; }
+.accent--orange { --card-accent: #d35400; }
+.accent--amber { --card-accent: #c99400; }
+.accent--green { --card-accent: #2e8b57; }
+.accent--teal { --card-accent: #138d90; }
+.accent--blue { --card-accent: #2f6fd1; }
+.accent--indigo { --card-accent: #4b4fc4; }
+.accent--purple { --card-accent: #8e44ad; }
+.accent--pink { --card-accent: #c2477f; }
+.accent--slate { --card-accent: #5d6d7e; }
+@media (prefers-color-scheme: dark) {
+  .accent--red { --card-accent: #ef6f5e; }
+  .accent--orange { --card-accent: #f39a4e; }
+  .accent--amber { --card-accent: #f2c14e; }
+  .accent--green { --card-accent: #5cc28a; }
+  .accent--teal { --card-accent: #4fc6c4; }
+  .accent--blue { --card-accent: #6ea2f5; }
+  .accent--indigo { --card-accent: #8f93f0; }
+  .accent--purple { --card-accent: #c08ae0; }
+  .accent--pink { --card-accent: #ee8ab6; }
+  .accent--slate { --card-accent: #a3b1bf; }
+}
+
+/* Colour picker in the campaign form */
+.accent-picker { border: 0; margin: 0; padding: 0; }
+.accent-picker legend { font-weight: 600; padding: 0; margin-bottom: var(--space-2); }
+.accent-picker legend .muted { font-weight: 400; font-size: 0.875rem; }
+.accent-picker__swatches { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.swatch { position: relative; cursor: pointer; }
+.swatch input { position: absolute; opacity: 0; }
+.swatch > span {
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--card-accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.swatch--default > span { background: var(--surface); box-shadow: inset 0 0 0 2px var(--border), 0 0 0 1px var(--border); }
+.swatch input:checked + span { box-shadow: 0 0 0 3px var(--text); }
+.swatch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
 .campaign-card__title {
   display: flex;
   align-items: center;

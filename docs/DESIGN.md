@@ -126,7 +126,11 @@ auth_sessions
 
 campaigns
   id, name, system (rule system), tagline, description_md, gm_user_id → users,
-  created_by → users, created_at, archived_at NULL
+  created_by → users, created_at, archived_at NULL,
+  accent ('' or a palette colour: the dashboard card's border)
+
+campaign_banners                       -- optional card banner, 1 per campaign
+  campaign_id (PK) → campaigns, content_type (png | jpeg | webp), data BLOB (≤ 1 MB), updated_at
 
 campaign_members
   campaign_id → campaigns, user_id → users, joined_at
@@ -197,6 +201,10 @@ poll_votes
   longer used is simply deleted.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
   pre-fill attendance with the "yes" voters, set `status = 'decided'`.
+- Card banners are stored in the DB rather than as files: they're small, backups then cover
+  them, and there's no upload directory to manage on the Pi. The type is taken from the file's
+  first bytes (PNG, JPEG, WebP only; never SVG, which can carry scripts) and served with
+  `X-Content-Type-Options: nosniff`.
 - Enums are stored as `TEXT` with a `CHECK` constraint and mapped to Rust enums via `sqlx::Type`
   (`#[sqlx(rename_all = "lowercase")]`, and `AS "col: Type"` in the query macros).
 - M6 left out `schedule_options.ends_at` and `schedule_votes.note` (not needed yet), and a
@@ -293,6 +301,9 @@ POST /campaigns/{id}/invites, DELETE /campaigns/{id}/invites/{invite_id}   # DEL
 DELETE /campaigns/{id}/members/{uid}                   # htmx: GM/admin removes a member, or a member leaves
 POST /campaigns/{id}/gm                                # reassign the GM (field user_id)
 POST /campaigns/{id}/gm/take                           # site admin takes over the GM role
+GET  /campaigns/{id}/banner                            # the banner image (members/admins), ?v=<updated_at>
+POST /campaigns/{id}/banner                            # multipart upload, field banner (GM)
+DELETE /campaigns/{id}/banner                          # htmx (GM); HX-Redirect to the edit page
 GET  /campaigns/{id}/pages/new, POST /campaigns/{id}/pages               # new page (GM/admin)
 GET  /campaigns/{id}/pages/{slug}                      # view (members)
 GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # edit (GM/admin)

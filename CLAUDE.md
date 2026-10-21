@@ -85,6 +85,9 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - `src/campaigns/`: campaign CRUD, members, invites management, GM change. `campaigns::load_for`
   loads a campaign plus the user's `Access` (404 for non-members) and is the permission entry
   point for every campaign-scoped feature module.
+- Campaign card style: `campaigns.accent` (palette in `campaigns::model::ACCENTS`, also the
+  `accents` template global and the `.accent--*` CSS classes) and an uploaded banner in
+  `campaign_banners` (`GET/POST/DELETE /campaigns/{id}/banner`, type sniffed by `sniff_image`).
 - `src/invites/`: `GET/POST /invite/{token}` (show, join) and `/invite/{token}/register`.
 - `src/pages/`: campaign wiki pages, nested at `/campaigns/{id}/pages`.
 - `src/admin/`: site admin tools at `/admin` (users, campaigns, campaign delete). Site admins

@@ -2,7 +2,8 @@
 
 {# Context:
      current_user  required (nav, greeting)
-     campaigns     list of { id, name, system, tagline, is_gm }, the user's non-archived campaigns
+     campaigns     list of { id, name, system, tagline, is_gm, accent ("" or a colour name),
+                   banner_version (set when there's a banner) }, the user's non-archived campaigns
      sessions      list of { id, campaign_id, campaign_name, number, title, when: When }: planned
                    upcoming game sessions in those campaigns, soonest first (at most 10)
      polls         list of { id, campaign_id, campaign_name, title, status, option_count,
@@ -57,7 +58,10 @@
   <ul class="campaign-list">
     {% for c in campaigns %}
       <li>
-        <a class="campaign-card" href="/campaigns/{{ c.id }}">
+        <a class="campaign-card{% if c.accent %} accent--{{ c.accent }}{% endif %}{% if c.banner_version %} has-banner{% endif %}" href="/campaigns/{{ c.id }}">
+          {% if c.banner_version %}
+            <img class="campaign-card__banner" src="/campaigns/{{ c.id }}/banner?v={{ c.banner_version }}" alt="" loading="lazy">
+          {% endif %}
           <span class="campaign-card__title">
             <strong>{{ c.name }}</strong>
             {% if c.is_gm %}<span class="badge">GM</span>{% endif %}

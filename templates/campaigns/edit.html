@@ -3,10 +3,17 @@
 
 {# Context:
      current_user  required (nav)
-     campaign      { id, name, ... }, the campaign as stored (heading, URLs)
-     form          { name, system, tagline, description_md }, the values to show:
+     campaign      { id, name, ..., accent, banner_version }, the campaign as stored (heading,
+                   URLs; banner_version is set when there's a banner)
+     form          { name, system, tagline, description_md, accent }, the values to show:
                    the stored campaign on GET, the submitted values after a failed POST
-     error         optional string, shown above the form #}
+     error         optional string, shown above the form
+     banner_error  optional string, shown in the banner section
+
+   Requests:
+     POST   /campaigns/{id}            the campaign form
+     POST   /campaigns/{id}/banner     multipart, field banner (PNG/JPEG/WebP, max 1 MB)
+     DELETE /campaigns/{id}/banner     htmx; HX-Redirect back here #}
 
 {% block title %}Edit {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -18,5 +25,24 @@
   <div class="card">
     {{ campaign_form("/campaigns/" ~ campaign.id, "Save changes", "/campaigns/" ~ campaign.id, form, error) }}
   </div>
+
+  <section class="card" id="banner">
+    <h2>Card banner</h2>
+    <p class="muted small">A picture shown at the top of the campaign's card on the dashboard and on the campaign page.
+      Wide images work best (about 3:1); it's cropped to fit. PNG, JPEG or WebP, up to 1 MB.</p>
+    {% if banner_error %}<p class="alert alert--error" role="alert">{{ banner_error }}</p>{% endif %}
+    {% if campaign.banner_version %}
+      <img class="banner-preview" src="/campaigns/{{ campaign.id }}/banner?v={{ campaign.banner_version }}" alt="Current banner">
+    {% endif %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/banner" enctype="multipart/form-data" class="inline-form inline-form--flush">
+      <label for="banner-file" class="visually-hidden">Banner image</label>
+      <input id="banner-file" name="banner" type="file" accept="image/png,image/jpeg,image/webp" required>
+      <button type="submit" class="button button--secondary">{% if campaign.banner_version %}Replace{% else %}Upload{% endif %}</button>
+      {% if campaign.banner_version %}
+        <button type="button" class="link-button link-button--danger" hx-delete="/campaigns/{{ campaign.id }}/banner"
+                hx-confirm="Remove the banner?">Remove</button>
+      {% endif %}
+    </form>
+  </section>
 </section>
 {% endblock %}

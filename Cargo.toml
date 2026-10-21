@@ -7,7 +7,7 @@ edition = "2024"
 ammonia = "4.2.4"
 anyhow = "1.0.104"
 argon2 = "0.6.0"
-axum = { version = "0.8.9", features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros", "multipart"] }
 axum-extra = { version = "0.12", features = ["cookie", "form"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 chrono-tz = "0.10.4"
@@ -35,7 +35,7 @@ codegen-units = 1
 strip = true
 
 [dev-dependencies]
-reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "form"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "form", "multipart"] }
 scraper = "0.29.0"
 serde_json = "1.0.154"
 thirtyfour = { version = "0.38.1", default-features = false, features = ["reqwest"] }

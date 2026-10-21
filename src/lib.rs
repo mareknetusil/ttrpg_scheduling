@@ -43,6 +43,10 @@ impl AppState {
         let mut templates = Environment::new();
         templates.set_loader(minijinja::path_loader("templates"));
         templates.add_global("app_version", env!("APP_VERSION"));
+        templates.add_global(
+            "accents",
+            minijinja::Value::from(campaigns::model::ACCENTS.to_vec()),
+        );
         AppState { templates, db, tz }
     }
 

@@ -6,6 +6,7 @@ mod common;
 mod admin;
 mod auth;
 mod campaigns;
+mod card_style;
 mod comments_polls;
 mod invites;
 mod pages;

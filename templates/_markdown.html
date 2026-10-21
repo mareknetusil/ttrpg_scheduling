@@ -1,6 +1,8 @@
 {# Markdown editor: a textarea with Write / Preview tabs.
    Preview posts the textarea (hx-include) to POST /markdown/preview and shows the returned,
-   already sanitized HTML. `id` must be unique on the page; `name` is the form field. #}
+   already sanitized HTML. hx-params limits the request to this one field: inside a form, htmx
+   would otherwise send every field of the form, and the endpoint renders the one it gets.
+   `id` must be unique on the page; `name` is the form field. #}
 {% macro markdown_field(name, label, value="", id=none, rows=8, required=false, optional=true) %}
   {% set field_id = id or name %}
   <div class="field md-editor" x-data="{ tab: 'write' }">
@@ -10,7 +12,7 @@
         <button type="button" role="tab" class="tabs__tab" :aria-selected="tab == 'write'"
                 @click="tab = 'write'; $nextTick(() => $refs.input.focus())">Write</button>
         <button type="button" role="tab" class="tabs__tab" :aria-selected="tab == 'preview'"
-                hx-post="/markdown/preview" hx-include="#{{ field_id }}"
+                hx-post="/markdown/preview" hx-include="#{{ field_id }}" hx-params="{{ name }}"
                 hx-target="#{{ field_id }}-preview" hx-swap="innerHTML"
                 @click="tab = 'preview'">Preview</button>
       </div>

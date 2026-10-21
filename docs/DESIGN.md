@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M10 done.
+Status: v1.0 (2026-10-21). Progress: M0–M11 done.
 
 ## 1. Goals and non-goals
 
@@ -75,31 +75,37 @@ Cargo.toml
 build.rs               # rebuild when migrations/ changes
 migrations/            # sqlx SQL migrations (embedded into the binary)
 src/
-  main.rs              # parse CLI, startup, then create-admin or serve (AppState + index handler)
+  main.rs              # parse CLI, startup, then create-admin, backup or serve
+  lib.rs               # modules, AppState, router(), serve(), dashboard/preview/healthz handlers
   cli.rs               # clap Cli/Command, create_admin()
   config.rs            # Config::from_env()
   db.rs                # pool + migrations
-  state.rs             # (planned) AppState { db: SqlitePool, templates: Environment, ... }
   error.rs             # AppError + IntoResponse
-  markdown.rs          # md -> sanitized html
+  markdown.rs          # md -> sanitized html, slugify
   auth/
     mod.rs
     password.rs        # argon2 hash()/verify() via spawn_blocking
     session.rs         # create()/remove() rows in auth_sessions
     extractor.rs       # CurrentUser (FromRequestParts)
     handlers.rs        # GET/POST /login, POST /logout
-  campaigns/           # one module per feature: handlers.rs + db.rs (queries) + model.rs
-  scheduling/
-  game_sessions/
+  time.rs              # UTC DB strings, DISPLAY_TZ conversion, When (template timestamps)
+  campaigns/           # one module per feature: mod.rs (router) + handlers.rs + db.rs (queries) + model.rs
+  invites/             # accept an invite, register through one
+  pages/               # campaign wiki pages
+  scheduling/          # scheduling polls, voting grid, regular slots (pattern.rs)
+  game_sessions/       # sessions, history, attendance, entries
   comments/
   polls/
-tests/                 # (M11) end-to-end tests against the real app; see §10.1
+tests/e2e/             # (M11) HTTP end-to-end tests against the real app; see §10.1
+tests/browser/         # (M11) browser tests for htmx/Alpine (headless Firefox, #[ignore])
 templates/
   base.html
   campaigns/...
 static/
   css/style.css
   js/  (htmx-<ver>.min.js, alpine-<ver>.min.js: vendored, version in file name, no CDN)
+deploy/                # systemd units, env file example (docs/DEPLOY.md)
+scripts/deploy.sh      # build for the Pi and deploy
 docs/
 ```
 
@@ -433,7 +439,7 @@ version is worth using.
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | done |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | done |
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | done |
-| M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | |
+| M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | done |
 
 ### 10.1 M11: end-to-end tests (plan)
 
@@ -484,6 +490,26 @@ class of bug, which the compiler can't.
     them with `cargo test -- --ignored`.
 - **Optional:** `cargo-nextest` as a faster test runner, and `insta` snapshot tests for rendered
   templates.
+
+**What was built (2026-10-21):**
+
+- `src/lib.rs` + a thin `src/main.rs`; `router(AppState::new(db, tz))` is what both `serve()`
+  and the tests run.
+- `tests/e2e/` (one test binary, 26 tests, ~3 s): auth and `next`, campaigns and the permission
+  matrix (404s for non-members, member vs GM vs admin), invites and registration, members/GM
+  changes, pages and slugs, scheduling (validation, voting fragments, decide → session +
+  attendance, cancel, regular slots), sessions (history, edit, attendance, entries), comments
+  and polls. Each test gets its own migrated SQLite DB from `#[sqlx::test]`.
+- `tests/browser/` (4 tests, `#[ignore]`d, ~50 s): the voting grid swap, the Markdown preview
+  tab and the Alpine date list, posting and deleting comments (with the `hx-confirm` dialog),
+  and the invite page's switch to registration. geckodriver is started per test on a free port.
+- The browser tests found one real bug the HTTP tests couldn't: inside a form, htmx sent every
+  form field to `/markdown/preview`, which rendered whichever came first (fixed with
+  `hx-params`).
+- Compared with Playwright: thirtyfour needs a separately running driver (started by the test
+  helper here) and explicit waits via `query(..).first()` / `wait_until()`, where Playwright
+  auto-waits on every action. The HTTP layer, which is the bulk of the tests, needs no browser
+  at all.
 
 ## 11. Later ideas
 

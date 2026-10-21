@@ -66,9 +66,12 @@ finished. Keep the code simple and explicit so the owner can still read and main
 
 ## Code map
 
-- `src/main.rs`: loads dotenv, parses the CLI, then sets up config, logging and DB. It then
-  runs either `cli::create_admin` or `serve()`. `serve()` does the templates, `AppState`, router
-  and serve. The `index` handler still lives here.
+- The package is a library plus a thin binary, so tests in `tests/` can build the app.
+  - `src/main.rs`: loads dotenv, parses the CLI, then sets up config, logging and DB. It then
+    runs `cli::create_admin`, `cli::backup` or `serve()`.
+  - `src/lib.rs`: the modules, `AppState` (`AppState::new(db, tz)` loads the templates),
+    `router(state)` with every route, `serve()` (bind, graceful shutdown), and the small
+    handlers `index` (dashboard), `markdown_preview` and `healthz`.
 - `src/cli.rs`: clap `Cli`/`Command` and `create_admin()`, which reads the password from stdin
   and inserts an admin user.
 - `src/auth/`:
@@ -98,7 +101,7 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - `src/time.rs`: UTC DB strings ↔ `chrono`; `parse_local` for `datetime-local` inputs in
   `DISPLAY_TZ`; `When`, the struct templates get for any timestamp (`iso`, `date`, `time`, `full`,
   `input`, `is_past`).
-- `AppState` (in `main.rs`) holds `templates`, `db` and `tz`. `state.render(name, ctx)` renders a
+- `AppState` (in `lib.rs`) holds `templates`, `db` and `tz`. `state.render(name, ctx)` renders a
   full page, `state.render_block(name, block, ctx)` one block (htmx fragments).
 - `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to
   `0.0.0.0:8080`, `DISPLAY_TZ` defaults to `UTC`. `.env` is optional (dev only); see `.env.example`.
@@ -131,7 +134,12 @@ cargo run -- backup <file>     # consistent copy of the DB (VACUUM INTO), safe w
 cargo check                    # fast type check
 cargo clippy --all-targets     # lints, keep warnings at zero
 cargo fmt                      # format
-cargo test                     # tests (DB tests use sqlx::test with a temp SQLite DB)
+cargo test                     # unit tests + HTTP end-to-end tests (tests/e2e/), ~5 s; each
+                               # #[sqlx::test] gets its own fresh, migrated SQLite DB
+cargo test --test e2e invites  # one e2e module
+cargo test --test browser -- --ignored   # browser tests (tests/browser/): headless Firefox via
+                               # geckodriver (`cargo install geckodriver`); FIREFOX_BINARY if
+                               # Firefox isn't on the PATH (the Flatpak build is found)
 sqlx migrate add <name>        # new migration (needs: cargo install sqlx-cli)
 sqlx migrate run               # apply migrations (the app also runs them on startup)
 sqlx database reset            # dev only: drop, recreate and re-migrate data/dev.db
@@ -140,6 +148,17 @@ sqlx database reset            # dev only: drop, recreate and re-migrate data/de
 cargo zigbuild --release --target aarch64-unknown-linux-musl
 PI_HOST=pi@raspberrypi HEALTH_URL=http://<vpn-ip>:8080/healthz scripts/deploy.sh   # see docs/DEPLOY.md
 ```
+
+## Tests
+
+- `tests/e2e/`: one test binary; `common.rs` holds the fixtures (`spawn_app(db)` starts the real
+  router on a random port; `app.user("name")` creates and logs in a user with a cookie-keeping
+  `reqwest` client that doesn't follow redirects; `Resp` has `scraper` helpers such as
+  `text(css)`, `count(css)`, `attr(css, name)`, `error()`, `redirect()`). Add a test for every
+  new page or permission rule; every template branch should render at least once, because a
+  template mistake only fails at runtime (as a 500).
+- `tests/browser/`: only for behaviour that needs JavaScript (htmx swaps, Alpine state).
+  `Browser::mark_page()` + `still_same_page()` prove a swap didn't reload the page.
 
 ## Conventions
 

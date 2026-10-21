@@ -23,7 +23,9 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
   Auth: `argon2` (password hashing), `rand` (session tokens), `axum-extra` (feature `cookie`,
   `CookieJar`), `serde` (`Form` structs, template values), `clap` (the `create-admin` subcommand).
   Markdown: `pulldown-cmark` + `ammonia` (sanitizing), `deunicode` (page slugs).
-  Planned: `chrono` (time).
+  Time: `chrono` + `chrono-tz` (`DISPLAY_TZ`). `axum_extra::extract::Form` (feature `form`) for
+  forms with repeated fields (`Vec<String>`); axum's own `Form` can't do that.
+  minijinja features: `serde`, `json` (the `tojson` filter, used to hand data to Alpine).
 - **Frontend:** server-rendered HTML + htmx + Alpine.js + plain CSS. No JS build step, no SPA.
 
 ## How we work together (important)
@@ -83,9 +85,16 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - `src/invites/`: `GET/POST /invite/{token}` (show, join) and `/invite/{token}/register`.
 - `src/pages/`: campaign wiki pages, nested at `/campaigns/{id}/pages`.
 - `src/markdown.rs`: `render()` (Markdown → sanitized HTML) and `slugify()`.
-- `AppState::render(name, ctx)` in `main.rs` renders a full-page template.
+- `src/scheduling/`: scheduling polls (`/campaigns/{id}/schedule/new`, `/schedule/{poll_id}`),
+  htmx voting grid (`PUT .../vote` returns the `grid` block), decide → game session.
+- `src/game_sessions/`: game sessions (`/sessions/{id}`), upcoming lists for dashboard/campaign.
+- `src/time.rs`: UTC DB strings ↔ `chrono`; `parse_local` for `datetime-local` inputs in
+  `DISPLAY_TZ`; `When`, the struct templates get for any timestamp (`iso`, `date`, `time`, `full`,
+  `input`, `is_past`).
+- `AppState` (in `main.rs`) holds `templates`, `db` and `tz`. `state.render(name, ctx)` renders a
+  full page, `state.render_block(name, block, ctx)` one block (htmx fragments).
 - `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to
-  `0.0.0.0:8080`. `.env` is optional (dev only); see `.env.example`.
+  `0.0.0.0:8080`, `DISPLAY_TZ` defaults to `UTC`. `.env` is optional (dev only); see `.env.example`.
 - `src/db.rs`: `connect()` builds the SQLite pool (WAL, `synchronous=NORMAL`, max 4 connections)
   and runs the embedded migrations.
 - `src/error.rs`: `AppError` (thiserror) + `IntoResponse`. Internal errors (`Template`,

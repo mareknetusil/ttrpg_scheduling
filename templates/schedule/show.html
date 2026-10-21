@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user      required (nav)
+     campaign          { id, name, gm_user_id, ... }
+     can_manage        bool: GM or admin (pick a date, cancel)
+     can_vote          bool: a member, and the poll is open
+     poll              { id, title, status: "open" | "decided" | "cancelled", deadline: When?,
+                         decided_option_id?, game_session_id? }
+     description_html  sanitized HTML (may be empty)
+     members           list of { user_id, username, display_name, joined_at }: grid columns
+     options           list of { id, when: When, yes, maybe, no, cells: [answer?] (one per member,
+                       in members order), mine: answer?, is_best, is_decided }
+     unanswered        number of options the current user hasn't answered
+   When = { iso, date, date_long, time, full, input, is_past }; answer = "yes" | "maybe" | "no".
+
+   Requests:
+     PUT  /schedule/{poll_id}/options/{option_id}/vote   htmx, field answer; the response is the
+                                                         `grid` block, swapped over #vote-grid
+     POST /schedule/{poll_id}/decide                     field option_id; redirects to the new
+                                                         game session
+     POST /schedule/{poll_id}/cancel #}
+
+{% block title %}{{ poll.title }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+
+<section class="page-head">
+  <div>
+    <h1>{{ poll.title }}</h1>
+    <p class="muted">
+      {% if poll.status == "open" %}
+        Scheduling poll{% if poll.deadline %} · vote by <time datetime="{{ poll.deadline.iso }}">{{ poll.deadline.full }}</time>{% endif %}
+      {% elif poll.status == "decided" %}
+        Decided
+      {% else %}
+        Cancelled
+      {% endif %}
+    </p>
+  </div>
+  {% if can_manage and poll.status == "open" %}
+    <form method="post" action="/schedule/{{ poll.id }}/cancel"
+          data-confirm="Cancel this poll? Nobody can vote afterwards." onsubmit="return confirm(this.dataset.confirm)">
+      <button type="submit" class="link-button link-button--danger">Cancel poll</button>
+    </form>
+  {% endif %}
+</section>
+
+{% if poll.status == "decided" %}
+  {% for opt in options if opt.is_decided %}
+    <p class="alert alert--success">
+      The date is <strong><time datetime="{{ opt.when.iso }}">{{ opt.when.full }}</time></strong>.
+      <a href="/sessions/{{ poll.game_session_id }}">Open the game session</a>
+    </p>
+  {% endfor %}
+{% elif poll.status == "cancelled" %}
+  <p class="alert">This poll was cancelled.</p>
+{% endif %}
+
+{% if description_html %}
+  <section class="card"><div class="prose">{{ description_html|safe }}</div></section>
+{% endif %}
+
+<section class="card">
+  {% block grid %}
+  <div id="vote-grid">
+    {% if can_vote %}
+      <p class="muted small">
+        {% if unanswered %}
+          You haven't answered {{ unanswered }} of {{ options|length }} dates yet.
+        {% else %}
+          You've answered every date. You can change your answers until the GM decides.
+        {% endif %}
+      </p>
+    {% endif %}
+    <div class="vote-grid-wrap">
+      <table class="vote-grid">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            {% if can_vote %}<th scope="col">Your answer</th>{% endif %}
+            <th scope="col" class="vote-grid__total">Yes / maybe / no</th>
+            {% for m in members %}
+              <th scope="col" class="vote-grid__member" title="{{ m.display_name }}">
+                {% if m.user_id == current_user.id %}You{% else %}{{ m.display_name }}{% endif %}
+              </th>
+            {% endfor %}
+            {% if can_manage and poll.status == "open" %}<th scope="col"><span class="visually-hidden">Decide</span></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for opt in options %}
+            <tr class="{% if opt.is_decided %}is-decided{% elif opt.is_best %}is-best{% endif %}">
+              <th scope="row" class="vote-grid__date">
+                <time datetime="{{ opt.when.iso }}">{{ opt.when.date }}</time>
+                <span class="muted">{{ opt.when.time }}</span>
+                {% if opt.is_decided %}<span class="badge">Chosen</span>
+                {% elif opt.is_best and poll.status == "open" %}<span class="badge badge--soft">Most yes</span>{% endif %}
+              </th>
+              {% if can_vote %}
+                <td>
+                  <div class="vote-buttons" role="group" aria-label="Your answer for {{ opt.when.full }}">
+                    {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
+                      <button type="button" id="vote-{{ opt.id }}-{{ answer }}"
+                              class="vote-btn vote-btn--{{ answer }}"
+                              aria-pressed="{{ 'true' if opt.mine == answer else 'false' }}"
+                              hx-put="/schedule/{{ poll.id }}/options/{{ opt.id }}/vote"
+                              hx-vals='{"answer": "{{ answer }}"}'
+                              hx-target="#vote-grid" hx-swap="outerHTML">{{ label }}</button>
+                    {% endfor %}
+                  </div>
+                </td>
+              {% endif %}
+              <td class="vote-grid__total">
+                <span class="tally tally--yes" title="yes">{{ opt.yes }}</span>
+                <span class="tally tally--maybe" title="maybe">{{ opt.maybe }}</span>
+                <span class="tally tally--no" title="no">{{ opt.no }}</span>
+              </td>
+              {% for answer in opt.cells %}
+                {% set m = members[loop.index0] %}
+                <td class="cell cell--{{ answer or 'none' }}"
+                    title="{{ m.display_name }}: {{ answer or 'no answer yet' }}">
+                  {% if answer == "yes" %}✓{% elif answer == "maybe" %}?{% elif answer == "no" %}✗{% else %}·{% endif %}
+                  <span class="visually-hidden">{{ m.display_name }}: {{ answer or "no answer yet" }}</span>
+                </td>
+              {% endfor %}
+              {% if can_manage and poll.status == "open" %}
+                <td>
+                  <form method="post" action="/schedule/{{ poll.id }}/decide"
+                        data-confirm="Pick {{ opt.when.full }}? This creates the game session and closes the poll."
+                        onsubmit="return confirm(this.dataset.confirm)">
+                    <input type="hidden" name="option_id" value="{{ opt.id }}">
+                    <button type="submit" class="button button--secondary button--small">Pick</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endblock %}
+</section>
+{% endblock %}

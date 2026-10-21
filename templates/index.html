@@ -2,7 +2,11 @@
 
 {# Context:
      current_user  required (nav, greeting)
-     campaigns     list of { id, name, system, tagline, is_gm }, the user's non-archived campaigns #}
+     campaigns     list of { id, name, system, tagline, is_gm }, the user's non-archived campaigns
+     sessions      list of { id, campaign_id, campaign_name, number, title, when: When }: planned
+                   upcoming game sessions in those campaigns, soonest first (at most 10)
+     polls         list of { id, campaign_id, campaign_name, title, status, option_count,
+                   my_vote_count }: open scheduling polls in those campaigns #}
 
 {% block title %}Campaigns · TTRPG Scheduling{% endblock %}
 
@@ -10,11 +14,45 @@
 <section class="page-head">
   <div>
     <h1>Hello, {{ current_user.display_name }}!</h1>
-    <p class="muted">Your campaigns</p>
   </div>
   <a class="button" href="/campaigns/new">New campaign</a>
 </section>
 
+{% if sessions or polls %}
+  <div class="dashboard-grid">
+    {% if sessions %}
+      <section class="card">
+        <h2>Upcoming sessions</h2>
+        <ul class="item-list">
+          {% for s in sessions %}
+            <li>
+              <a href="/sessions/{{ s.id }}">
+                <strong><time datetime="{{ s.when.iso }}">{{ s.when.date }}, {{ s.when.time }}</time></strong>
+              </a>
+              <span class="muted">{{ s.campaign_name }} · session {{ s.number }}{% if s.title %}: {{ s.title }}{% endif %}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+    {% if polls %}
+      <section class="card">
+        <h2>Open scheduling polls</h2>
+        <ul class="item-list">
+          {% for p in polls %}
+            <li>
+              <a href="/schedule/{{ p.id }}"><strong>{{ p.title }}</strong></a>
+              {% if p.my_vote_count < p.option_count %}<span class="badge">Vote</span>{% endif %}
+              <span class="muted">{{ p.campaign_name }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+{% endif %}
+
+<h2 class="section-title">Your campaigns</h2>
 {% if campaigns %}
   <ul class="campaign-list">
     {% for c in campaigns %}

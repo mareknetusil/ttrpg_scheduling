@@ -90,6 +90,12 @@ pub async fn show(
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     let pages = crate::pages::db::list(&state.db, id).await?;
+    let polls = crate::scheduling::db::for_campaign(&state.db, id, user.id).await?;
+    let sessions: Vec<_> = crate::game_sessions::db::upcoming_for_campaign(&state.db, id)
+        .await?
+        .iter()
+        .map(|s| crate::game_sessions::model::SessionView::new(s, state.tz))
+        .collect();
     state.render(
         "campaigns/show.html",
         context! {
@@ -98,6 +104,8 @@ pub async fn show(
             description_html => crate::markdown::render(&campaign.description_md),
             can_manage => access.can_manage(),
             pages => Serde(&pages),
+            polls => Serde(&polls),
+            sessions => Serde(&sessions),
         },
     )
 }

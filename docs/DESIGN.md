@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M5 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M6 done.
 
 ## 1. Goals and non-goals
 
@@ -64,7 +64,7 @@ Status: draft v0.7 (2026-10-21). Progress: M0–M5 done.
 | Passwords | `argon2` | Current standard password hash. |
 | Time | `chrono` + `chrono-tz` | Well supported by sqlx. |
 | Errors | `thiserror` + `anyhow` | Typed `AppError` (thiserror) that implements `IntoResponse` for handlers; `anyhow` + `.context()` for startup code. |
-| Config | env vars (`dotenvy` loads an optional `.env` in dev) | `DATABASE_URL` (required), `BIND_ADDR` (default `0.0.0.0:8080`); later `DISPLAY_TZ`, `SECRET`... |
+| Config | env vars (`dotenvy` loads an optional `.env` in dev) | `DATABASE_URL` (required), `BIND_ADDR` (default `0.0.0.0:8080`), `DISPLAY_TZ` (IANA name, default `UTC`). |
 | Logging | `tracing` + `tracing-subscriber`, `tower-http` `TraceLayer` | Request logs. |
 | Static files | `tower-http` `ServeDir` | |
 
@@ -144,15 +144,14 @@ schedule_polls                         -- R2
   decided_option_id NULL → schedule_options, game_session_id NULL → game_sessions
 
 schedule_options
-  id, poll_id, starts_at, ends_at NULL
+  id, poll_id, starts_at                 UNIQUE (poll_id, starts_at)
 
 schedule_votes
-  option_id → schedule_options, user_id → users, answer ('yes' | 'maybe' | 'no'),
-  note NULL, updated_at
+  option_id → schedule_options, user_id → users, answer ('yes' | 'maybe' | 'no'), updated_at
   PK (option_id, user_id)
 
 game_sessions                          -- R3, R4
-  id, campaign_id, number (per campaign), title NULL, starts_at,
+  id, campaign_id, number (per campaign, UNIQUE with campaign_id), title ('' = none), starts_at,
   status ('planned' | 'played' | 'cancelled'), created_at
 
 game_session_attendance                -- R4
@@ -188,7 +187,14 @@ poll_votes
   the same after creation.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
   pre-fill attendance with the "yes" voters, set `status = 'decided'`.
-- Enums are stored as `TEXT` with a `CHECK` constraint and mapped to Rust enums via `sqlx::Type`.
+- Enums are stored as `TEXT` with a `CHECK` constraint and mapped to Rust enums via `sqlx::Type`
+  (`#[sqlx(rename_all = "lowercase")]`, and `AS "col: Type"` in the query macros).
+- M6 left out `schedule_options.ends_at` and `schedule_votes.note` (not needed yet), and a
+  `CHECK` keeps `schedule_polls.status = 'decided'` in sync with its two decision columns.
+- Deciding a poll gives the session no title (the poll title is usually "Session 12", which
+  would duplicate the number); the GM can add one on the session page.
+- Votes count only for current members: the grid shows one column per member, and attendance
+  is pre-filled only with yes-voters who are still members.
 
 ## 5. Auth and permissions
 
@@ -269,8 +275,9 @@ GET  /campaigns/{id}/history                           # list of game sessions
 GET  /campaigns/{id}/schedule/new                      # manual or from pattern
 POST /campaigns/{id}/schedule
 GET  /schedule/{poll_id}                               # voting grid
-PUT  /schedule/{poll_id}/options/{opt_id}/vote         # (fragment) one cell of the grid
-POST /schedule/{poll_id}/decide
+PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid
+POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session
+POST /schedule/{poll_id}/cancel
 
 GET  /sessions/{id}                                    # game session page: entries, attendance, comments, polls
 POST /sessions/{id}/attendance
@@ -399,7 +406,7 @@ version is worth using.
 | M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | done |
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | done |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | done |
-| M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |
+| M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | done |
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | |

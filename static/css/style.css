@@ -10,6 +10,10 @@
   --accent-soft: #f3e4df;
   --danger: #a3261b;
   --danger-soft: #fbe9e6;
+  --success: #2f6b3a;
+  --success-soft: #e3f1e4;
+  --warn: #8a6100;
+  --warn-soft: #fbf0d4;
 
   --radius: 8px;
   --space-1: 0.25rem;
@@ -36,6 +40,10 @@
     --accent-soft: #3a2621;
     --danger: #f08a7c;
     --danger-soft: #3b1d19;
+    --success: #8fd19a;
+    --success-soft: #1d3321;
+    --warn: #e7c06a;
+    --warn-soft: #3a2f14;
   }
 }
 
@@ -207,6 +215,10 @@ a.button { text-decoration: none; }
 .alert--error {
   color: var(--danger);
   background: var(--danger-soft);
+}
+.alert--success {
+  color: var(--success);
+  background: var(--success-soft);
 }
 
 /* ---------- Dashboard ---------- */
@@ -391,6 +403,108 @@ a.button { text-decoration: none; }
 
 .empty { text-align: center; }
 .empty p { margin: var(--space-1) 0; }
+
+.badge--soft { background: var(--success-soft); color: var(--success); }
+.button--small { padding: var(--space-1) var(--space-2); font-size: 0.875rem; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Simple vertical lists of links with a muted second line */
+.item-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+.item-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  padding-block: var(--space-1);
+}
+.item-list li > .muted { flex-basis: 100%; font-size: 0.875rem; }
+.chip-list { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; }
+.chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+/* ---------- Dashboard sections ---------- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0 var(--space-3);
+}
+.section-title { margin: var(--space-2) 0 var(--space-3); font-size: 1.3rem; }
+
+/* ---------- Scheduling: candidate date list ---------- */
+.date-list { border: 0; margin: 0; padding: 0; }
+.date-list legend { font-weight: 600; padding: 0; margin-bottom: var(--space-1); }
+.date-list__row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.date-list .row { margin-block: var(--space-1); gap: var(--space-2); }
+input[type="datetime-local"] {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* ---------- Scheduling: voting grid ---------- */
+.vote-grid-wrap { overflow-x: auto; margin-inline: calc(-1 * var(--space-2)); }
+.vote-grid { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+.vote-grid th, .vote-grid td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+.vote-grid thead th { font-size: 0.8rem; font-weight: 600; color: var(--muted); vertical-align: bottom; }
+.vote-grid .vote-grid__date {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+}
+.vote-grid thead th:first-child { text-align: left; }
+.vote-grid__member { max-width: 6rem; overflow: hidden; text-overflow: ellipsis; }
+.vote-grid tr.is-best .vote-grid__date { box-shadow: inset 3px 0 0 var(--success); }
+.vote-grid tr.is-decided td, .vote-grid tr.is-decided .vote-grid__date { background: var(--accent-soft); }
+.vote-grid form { margin: 0; }
+
+.vote-buttons { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.vote-btn {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.vote-btn:first-child { border-left: 0; }
+.vote-btn:hover { color: var(--text); }
+.vote-btn--yes[aria-pressed="true"] { background: var(--success-soft); color: var(--success); font-weight: 700; }
+.vote-btn--maybe[aria-pressed="true"] { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+.vote-btn--no[aria-pressed="true"] { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+.htmx-request .vote-btn, .vote-btn.htmx-request { opacity: 0.6; }
+
+.tally { display: inline-block; min-width: 1.6em; padding: 0 var(--space-1); border-radius: 4px; font-weight: 700; }
+.tally--yes { color: var(--success); }
+.tally--maybe { color: var(--warn); }
+.tally--no { color: var(--danger); }
+.cell { font-weight: 700; }
+.cell--yes { color: var(--success); background: var(--success-soft); }
+.cell--maybe { color: var(--warn); background: var(--warn-soft); }
+.cell--no { color: var(--danger); background: var(--danger-soft); }
+.cell--none { color: var(--muted); }
 
 /* Medium-width column for forms like "new campaign" */
 .narrow { max-width: 40rem; margin-inline: auto; }

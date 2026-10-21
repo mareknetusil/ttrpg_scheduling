@@ -5,7 +5,10 @@
      campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
      description_html  the description rendered from Markdown and sanitized (safe to output)
      can_manage    bool: GM of this campaign or site admin (shows Edit, New page)
-     pages         list of { title, slug }: the campaign's wiki pages #}
+     pages         list of { title, slug }: the campaign's wiki pages
+     sessions      list of { id, number, title, when: When, status }: planned upcoming game sessions
+     polls         list of { id, title, status, option_count, my_vote_count }: open polls first,
+                   then the most recent closed ones #}
 
 {% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -43,6 +46,53 @@
   </section>
 
   <aside class="campaign-layout__side">
+    <section class="card">
+      <h2>Next sessions</h2>
+      {% if sessions %}
+        <ul class="item-list">
+          {% for s in sessions %}
+            <li>
+              <a href="/sessions/{{ s.id }}"><strong><time datetime="{{ s.when.iso }}">{{ s.when.date }}, {{ s.when.time }}</time></strong></a>
+              <span class="muted">Session {{ s.number }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted small">Nothing scheduled.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Scheduling</h2>
+      {% set open_polls = polls|selectattr("status", "equalto", "open")|list %}
+      {% set closed_polls = polls|rejectattr("status", "equalto", "open")|list %}
+      {% if open_polls %}
+        <ul class="item-list">
+          {% for p in open_polls %}
+            <li>
+              <a href="/schedule/{{ p.id }}">{{ p.title }}</a>
+              {% if p.my_vote_count < p.option_count %}<span class="badge">Vote</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted small">No open polls.</p>
+      {% endif %}
+      {% if closed_polls %}
+        <details class="small">
+          <summary class="muted">Closed polls</summary>
+          <ul class="item-list">
+            {% for p in closed_polls %}
+              <li><a href="/schedule/{{ p.id }}">{{ p.title }}</a> <span class="muted">{{ p.status }}</span></li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+      {% if can_manage %}
+        <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/schedule/new">New poll</a>
+      {% endif %}
+    </section>
+
     <section class="card">
       <h2>Pages</h2>
       {% if pages %}

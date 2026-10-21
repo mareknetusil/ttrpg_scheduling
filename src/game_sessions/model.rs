@@ -1,4 +1,5 @@
 use crate::time::When;
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -119,25 +120,26 @@ impl HistoryView {
 }
 
 /// `POST /campaigns/{id}/sessions` (add a session by hand) and `POST /sessions/{id}` (edit).
-/// `status` is ignored when adding.
+/// `status` is only used when editing (a new session's status follows from its date), and
+/// `user_ids` (the attendance, repeated) only when adding.
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SessionForm {
     #[serde(default)]
     pub title: String,
     pub starts_at: String,
     pub status: Option<SessionStatus>,
+    #[serde(default)]
+    pub user_ids: Vec<i64>,
 }
 
 impl SessionForm {
-    /// Returns the start time as a UTC DB string.
-    pub fn validate(&mut self, tz: Tz) -> Result<String, &'static str> {
+    /// Returns the start time.
+    pub fn validate(&mut self, tz: Tz) -> Result<DateTime<Utc>, &'static str> {
         self.title = self.title.trim().to_string();
         if self.title.chars().count() > 100 {
             return Err("The title can be at most 100 characters long.");
         }
-        let t = crate::time::parse_local(&self.starts_at, tz)
-            .ok_or("Fill in a valid date and time.")?;
-        Ok(crate::time::to_db(t))
+        crate::time::parse_local(&self.starts_at, tz).ok_or("Fill in a valid date and time.")
     }
 }
 

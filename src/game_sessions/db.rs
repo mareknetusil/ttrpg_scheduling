@@ -1,7 +1,7 @@
 use super::model::{
     Attendee, Entry, EntryForm, EntryKind, GameSession, HistoryRow, SessionStatus, UpcomingRow,
 };
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnection, SqlitePool};
 
 pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<GameSession>, sqlx::Error> {
     sqlx::query_as!(
@@ -78,42 +78,90 @@ pub async fn history(db: &SqlitePool, campaign_id: i64) -> Result<Vec<HistoryRow
     .await
 }
 
-/// Adds a session by hand (not from a poll), with the next number of the campaign.
+/// Adds a session by hand (not from a poll) with the given attendance, in one transaction.
+/// Members' ids only; others are ignored.
 pub async fn create(
     db: &SqlitePool,
     campaign_id: i64,
     title: &str,
     starts_at: &str,
+    status: SessionStatus,
+    user_ids: &[i64],
 ) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar!(
-        r#"INSERT INTO game_sessions (campaign_id, number, title, starts_at)
-           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = ?), ?, ?)
+    let mut tx = db.begin().await?;
+    // A placeholder number (unique for now); `renumber` puts it in date order.
+    let id = sqlx::query_scalar!(
+        r#"INSERT INTO game_sessions (campaign_id, number, title, starts_at, status)
+           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = ?), ?, ?, ?)
            RETURNING id AS "id!""#,
         campaign_id,
         campaign_id,
         title,
-        starts_at
+        starts_at,
+        status
     )
-    .fetch_one(db)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+    for user_id in user_ids {
+        sqlx::query!(
+            "INSERT OR IGNORE INTO game_session_attendance (game_session_id, user_id)
+             SELECT ?, user_id FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
+            id,
+            campaign_id,
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    renumber(&mut tx, campaign_id).await?;
+    tx.commit().await?;
+    Ok(id)
+}
+
+/// Numbers the campaign's sessions 1, 2, 3, … by date (cancelled ones included), so a session
+/// added for an earlier date gets the right number. Run after every insert or date change.
+pub async fn renumber(conn: &mut SqliteConnection, campaign_id: i64) -> Result<(), sqlx::Error> {
+    // Negate first: `UNIQUE (campaign_id, number)` is checked row by row, so moving numbers in
+    // place could collide halfway through.
+    sqlx::query!(
+        "UPDATE game_sessions SET number = -number WHERE campaign_id = ?",
+        campaign_id
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE game_sessions SET number = r.n
+         FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY starts_at, id) AS n
+               FROM game_sessions WHERE campaign_id = ?) AS r
+         WHERE game_sessions.id = r.id",
+        campaign_id
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 pub async fn update(
     db: &SqlitePool,
-    id: i64,
+    session: &GameSession,
     title: &str,
     starts_at: &str,
     status: SessionStatus,
 ) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE game_sessions SET title = ?, starts_at = ?, status = ? WHERE id = ?",
         title,
         starts_at,
         status,
-        id
+        session.id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    if starts_at != session.starts_at {
+        renumber(&mut tx, session.campaign_id).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 

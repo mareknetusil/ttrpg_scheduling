@@ -84,6 +84,9 @@
       {% else %}
         <p class="muted small">Nothing scheduled.</p>
       {% endif %}
+      {% if can_manage %}
+        <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/sessions/new">New session</a>
+      {% endif %}
     </section>
 
     <section class="card">

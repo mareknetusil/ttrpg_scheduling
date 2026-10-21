@@ -35,4 +35,5 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/history", get(handlers::history))
         .route("/sessions", post(handlers::create))
+        .route("/sessions/new", get(handlers::new_form))
 }

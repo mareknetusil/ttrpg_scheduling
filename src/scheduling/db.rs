@@ -93,8 +93,8 @@ pub async fn set_vote(
     Ok(result.rows_affected() > 0)
 }
 
-/// Decides the poll (R3) in one transaction: creates the next game session of the campaign at
-/// the option's time, pre-fills attendance with the members who voted yes, and marks the poll
+/// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
+/// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
 /// decided. Returns the new game session id, or `None` if the poll isn't open or the option
 /// isn't one of its options.
 pub async fn decide(
@@ -139,6 +139,7 @@ pub async fn decide(
     )
     .execute(&mut *tx)
     .await?;
+    crate::game_sessions::db::renumber(&mut tx, session.campaign_id).await?;
     tx.commit().await?;
     Ok(Some(session.id))
 }

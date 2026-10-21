@@ -13,12 +13,14 @@ use crate::{
         model::{Access, Campaign},
     },
     error::AppError,
+    time::to_db,
 };
 use axum::{
     extract::{Form, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
 };
+use chrono::Utc;
 use minijinja::{context, value::Serde};
 use std::sync::Arc;
 
@@ -66,7 +68,7 @@ pub async fn update(
         }
     };
     let status = form.status.unwrap_or(session.status);
-    db::update(&state.db, id, &form.title, &starts_at, status).await?;
+    db::update(&state.db, &session, &form.title, &to_db(starts_at), status).await?;
     Ok(Redirect::to(&format!("/sessions/{id}")).into_response())
 }
 
@@ -169,15 +171,43 @@ pub async fn history(
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
-    render_history(&state, &user, &campaign, &access, None, None).await
+    let sessions: Vec<HistoryView> = db::history(&state.db, campaign.id)
+        .await?
+        .into_iter()
+        .map(|r| HistoryView::new(r, state.tz))
+        .collect();
+    state.render(
+        "sessions/history.html",
+        context! {
+            current_user => Serde(&user),
+            campaign => Serde(&campaign),
+            can_manage => access.can_manage(),
+            sessions => Serde(&sessions),
+        },
+    )
 }
 
-/// `POST /campaigns/{id}/sessions`: add a session by hand, e.g. one played before the app existed.
+/// `GET /campaigns/{id}/sessions/new`: add a session without a poll (GM).
+pub async fn new_form(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Html<String>, AppError> {
+    let (campaign, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    render_new(&state, &user, &campaign, None, None).await
+}
+
+/// `POST /campaigns/{id}/sessions`: add a session without a poll, e.g. one played before the
+/// app existed, or one whose date is already agreed. A past date is recorded as played, a
+/// future one as planned. The checkboxes send `user_ids` (attendance).
 pub async fn create(
     State(state): State<Arc<AppState>>,
     user: CurrentUser,
     Path(id): Path<i64>,
-    Form(mut form): Form<SessionForm>,
+    axum_extra::extract::Form(mut form): axum_extra::extract::Form<SessionForm>,
 ) -> Result<Response, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     if !access.can_manage() {
@@ -187,13 +217,26 @@ pub async fn create(
         Ok(starts_at) => starts_at,
         Err(error) => {
             return Ok(
-                render_history(&state, &user, &campaign, &access, Some(&form), Some(error))
+                render_new(&state, &user, &campaign, Some(&form), Some(error))
                     .await?
                     .into_response(),
             );
         }
     };
-    let session_id = db::create(&state.db, id, &form.title, &starts_at).await?;
+    let status = if starts_at < Utc::now() {
+        SessionStatus::Played
+    } else {
+        SessionStatus::Planned
+    };
+    let session_id = db::create(
+        &state.db,
+        id,
+        &form.title,
+        &to_db(starts_at),
+        status,
+        &form.user_ids,
+    )
+    .await?;
     Ok(Redirect::to(&format!("/sessions/{session_id}")).into_response())
 }
 
@@ -304,26 +347,26 @@ fn render_entry_form(
     )
 }
 
-async fn render_history(
+/// The "new session" page. Without a submitted form every member is ticked as attending.
+async fn render_new(
     state: &AppState,
     user: &CurrentUser,
     campaign: &Campaign,
-    access: &Access,
     form: Option<&SessionForm>,
     error: Option<&str>,
 ) -> Result<Html<String>, AppError> {
-    let sessions: Vec<HistoryView> = db::history(&state.db, campaign.id)
-        .await?
-        .into_iter()
-        .map(|r| HistoryView::new(r, state.tz))
-        .collect();
+    let members = campaigns::db::members(&state.db, campaign.id).await?;
+    let checked_ids: Vec<i64> = match form {
+        Some(form) => form.user_ids.clone(),
+        None => members.iter().map(|m| m.user_id).collect(),
+    };
     state.render(
-        "sessions/history.html",
+        "sessions/new.html",
         context! {
             current_user => Serde(user),
             campaign => Serde(campaign),
-            can_manage => access.can_manage(),
-            sessions => Serde(&sessions),
+            members => Serde(&members),
+            checked_ids => Serde(&checked_ids),
             form => Serde(form),
             error,
         },

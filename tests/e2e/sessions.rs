@@ -180,3 +180,109 @@ async fn entries_permissions(db: SqlitePool) {
         1
     );
 }
+
+#[sqlx::test]
+async fn new_session_without_a_poll(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let mark = app.user("mark").await;
+    app.add_member(id, &mark).await;
+    let new = format!("/campaigns/{id}/sessions/new");
+    let add = format!("/campaigns/{id}/sessions");
+
+    // GM only, linked from the campaign page and the history
+    assert_eq!(mark.get(&new).await.status, StatusCode::NOT_FOUND);
+    let link = format!("a[href='{new}']");
+    assert!(gm.get(&format!("/campaigns/{id}")).await.has(&link));
+    assert!(!mark.get(&format!("/campaigns/{id}")).await.has(&link));
+    assert!(gm.get(&format!("/campaigns/{id}/history")).await.has(&link));
+    assert!(
+        !mark
+            .get(&format!("/campaigns/{id}/history"))
+            .await
+            .has(&link)
+    );
+
+    // every member is ticked by default; after an error the submitted ticks are kept
+    let r = gm.get(&new).await;
+    assert_eq!(r.ok().count("input[name=user_ids]"), 2);
+    assert_eq!(r.count("input[name=user_ids][checked]"), 2);
+    let mark_id = mark.id.to_string();
+    let r = gm
+        .post(&add, &[("starts_at", ""), ("user_ids", &mark_id)])
+        .await;
+    assert_eq!(r.error(), "Fill in a valid date and time.");
+    assert_eq!(
+        r.attr("input[name=user_ids][checked]", "value"),
+        Some(mark_id.clone())
+    );
+
+    // a past date is recorded as played, with the ticked attendance
+    let later = gm
+        .post(
+            &add,
+            &[
+                ("starts_at", "2025-06-01T19:00"),
+                ("title", "The heist"),
+                ("user_ids", &mark_id),
+            ],
+        )
+        .await
+        .redirect_id("/sessions/");
+    let r = mark.get(&format!("/sessions/{later}")).await;
+    assert_eq!(r.text(".status"), "Played");
+    assert_eq!(r.texts("#attendance .chip"), ["Mark"]);
+
+    // a future date is planned and shows as upcoming
+    let future = gm
+        .post(&add, &[("starts_at", "2030-01-10T18:00")])
+        .await
+        .redirect_id("/sessions/");
+    assert_eq!(
+        mark.get(&format!("/sessions/{future}"))
+            .await
+            .text(".status"),
+        "Planned"
+    );
+    assert!(
+        mark.get(&format!("/campaigns/{id}"))
+            .await
+            .has(&format!("a[href='/sessions/{future}']"))
+    );
+
+    // sessions are numbered by date: an earlier one added afterwards becomes #1
+    let earlier = gm
+        .post(&add, &[("starts_at", "2025-05-01T19:00")])
+        .await
+        .redirect_id("/sessions/");
+    let history = format!("/campaigns/{id}/history");
+    assert_eq!(
+        mark.get(&history).await.texts(".history__number"),
+        ["#3", "#2", "#1"]
+    );
+    assert_eq!(
+        mark.get(&format!("/sessions/{earlier}")).await.text("h1"),
+        "Session 1"
+    );
+
+    // moving a session's date renumbers too
+    gm.post(
+        &format!("/sessions/{earlier}"),
+        &[
+            ("title", ""),
+            ("starts_at", "2025-07-01T19:00"),
+            ("status", "played"),
+        ],
+    )
+    .await
+    .redirect();
+    assert_eq!(
+        mark.get(&format!("/sessions/{later}")).await.text("h1"),
+        "Session 1: The heist"
+    );
+    assert_eq!(
+        mark.get(&format!("/sessions/{earlier}")).await.text("h1"),
+        "Session 2"
+    );
+}

@@ -3,20 +3,20 @@
 {# Context:
      current_user  required (nav)
      campaign      { id, name, ... }
-     can_manage    bool: GM or admin (add a session by hand)
+     can_manage    bool: the GM (shows "New session")
      sessions      list of { session: { id, number, title, when: When, status }, attendee_count,
-                   entry_count }, newest first
-     form          optional { title, starts_at }: refill after an error
-     error         optional string
-
-   Requests:
-     POST /campaigns/{id}/sessions   fields title, starts_at (datetime-local); redirects to the session #}
+                   entry_count }, newest first #}
 
 {% block title %}History · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
 <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
-<h1>History</h1>
+<section class="page-head">
+  <h1>History</h1>
+  {% if can_manage %}
+    <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/sessions/new">New session</a>
+  {% endif %}
+</section>
 
 {% if sessions %}
   <ol class="history" reversed>
@@ -41,28 +41,9 @@
 {% else %}
   <div class="card empty">
     <p>No game sessions yet.</p>
-    <p class="muted">Sessions appear here when the GM picks a date in a scheduling poll.</p>
+    <p class="muted">Sessions appear here when the GM picks a date in a scheduling poll or adds one
+      directly{% if can_manage %}, e.g. to <a href="/campaigns/{{ campaign.id }}/sessions/new">record sessions played before</a>{% endif %}.</p>
   </div>
 {% endif %}
 
-{% if can_manage %}
-  <section class="card" x-data="{ open: {{ 'true' if error else 'false' }} }">
-    <h2><button type="button" class="link-button" @click="open = !open" :aria-expanded="open">Add a session by hand…</button></h2>
-    <p class="muted small">For sessions played before the app, or scheduled outside a poll.</p>
-    <div x-show="open" x-cloak>
-      {% if error %}<p class="alert alert--error" role="alert">{{ error }}</p>{% endif %}
-      <form method="post" action="/campaigns/{{ campaign.id }}/sessions" class="form">
-        <div class="field">
-          <label for="starts_at">Date and time</label>
-          <input id="starts_at" name="starts_at" type="datetime-local" required value="{{ form.starts_at if form else "" }}">
-        </div>
-        <div class="field">
-          <label for="title">Title <span class="muted">(optional)</span></label>
-          <input id="title" name="title" type="text" maxlength="100" value="{{ form.title if form else "" }}">
-        </div>
-        <div class="row"><button type="submit" class="button">Add session</button></div>
-      </form>
-    </div>
-  </section>
-{% endif %}
 {% endblock %}

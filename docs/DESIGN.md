@@ -24,8 +24,8 @@ Status: v1.0 (2026-10-21). Progress: M0–M11 done.
 |----|-------------|-------|
 | R1 | A user creates a campaign (name, rule system, short description, ...). The creator is the default GM; the GM can be reassigned. Users can be invited to a campaign. | Invitation by link (see §5.2). |
 | R2 | The GM creates a scheduling poll for a game session. Candidate dates are either picked manually or generated from a regular pattern (e.g. "every Friday 18:00"). Members vote. | Votes: yes / maybe / no per date. |
-| R3 | The GM picks the final date. It does not have to be the most-voted one. | Picking creates a `game_session`. |
-| R4 | Every game session shows in the campaign history with date and attendees. The GM can edit attendance. | Attendance defaults to the "yes" voters. |
+| R3 | The GM picks the final date. It does not have to be the most-voted one. The GM can also add a game session directly, without a poll (one already played, or a date already agreed). | Picking creates a `game_session`. |
+| R4 | Every game session shows in the campaign history with date and attendees. The GM can edit attendance. | Attendance defaults to the "yes" voters (all members for a session added directly). |
 | R5 | A game session can hold several content entries (recap, notes, loot, ...). | |
 | R6 | A campaign has a rich description and extra GM-written pages. | Wiki-lite. |
 | R7 | Members can comment on campaigns and game sessions. | |
@@ -201,6 +201,9 @@ poll_votes
   longer used is simply deleted.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
   pre-fill attendance with the "yes" voters, set `status = 'decided'`.
+- Adding a session directly (`/campaigns/{id}/sessions/new`) is one transaction too. Its status
+  follows from the date: past → `played`, future → `planned`. Attendance comes from checkboxes,
+  all members ticked by default.
 - Card banners are stored in the DB rather than as files: they're small, backups then cover
   them, and there's no upload directory to manage on the Pi. The type is taken from the file's
   first bytes (PNG, JPEG, WebP only; never SVG, which can carry scripts) and served with
@@ -211,9 +214,10 @@ poll_votes
   `CHECK` keeps `schedule_polls.status = 'decided'` in sync with its two decision columns.
 - Deciding a poll gives the session no title (the poll title is usually "Session 12", which
   would duplicate the number); the GM can add one on the session page.
-- Sessions are numbered in creation order (`MAX(number) + 1`), so a session added by hand for
-  an earlier date gets the next number, not a chronological one. Sessions are never deleted;
-  the GM marks them cancelled.
+- Sessions are numbered by date (cancelled ones included): `game_sessions::db::renumber` runs
+  in the same transaction after every insert (poll decision, direct add) and date change, so a
+  session backfilled for an earlier date takes its chronological number and later ones shift.
+  Sessions are never deleted; the GM marks them cancelled.
 - Poll results are hidden from a member until they vote (to avoid bandwagoning), then shown with
   voter names; closed polls show results to everyone. Polls with `closes_at` in the past count as
   closed without a write.
@@ -309,7 +313,8 @@ GET  /campaigns/{id}/pages/{slug}                      # view (members)
 GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # edit (GM/admin)
 DELETE /campaigns/{id}/pages/{slug}                    # htmx, HX-Redirect to the campaign
 GET  /campaigns/{id}/history                           # list of game sessions
-POST /campaigns/{id}/sessions                          # add a session by hand (GM/admin)
+GET  /campaigns/{id}/sessions/new                      # add a session without a poll (GM)
+POST /campaigns/{id}/sessions                          # fields title, starts_at, user_ids (repeated)
 
 GET  /campaigns/{id}/schedule/new                      # ?pattern_id=&weeks= fills dates from a slot
 POST /campaigns/{id}/schedule

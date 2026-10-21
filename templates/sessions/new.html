@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }
+     members       list of { user_id, display_name, ... }: the campaign's members
+     checked_ids   list of user ids ticked as attending (all members on a fresh form)
+     form          optional { title, starts_at, user_ids }: refill after an error
+     error         optional string
+
+   Requests:
+     POST /campaigns/{id}/sessions   fields title, starts_at (datetime-local, display time zone),
+                                     user_ids (repeated, attendance); a past date is saved as
+                                     played, a future one as planned; redirects to the session #}
+
+{% block title %}New session · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+  <h1>New session</h1>
+  <p class="muted">Add a session without a poll: one you've already played, or one whose date is
+    already agreed. To let the group pick a date, <a href="/campaigns/{{ campaign.id }}/schedule/new">start a scheduling poll</a> instead.</p>
+
+  <div class="card">
+    {% if error %}
+      <p class="alert alert--error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="/campaigns/{{ campaign.id }}/sessions" class="form"
+          x-data='{ when: {{ (form.starts_at if form else "")|tojson }} }'>
+      <div class="field">
+        <label for="starts_at">Date and time</label>
+        <input id="starts_at" name="starts_at" type="datetime-local" required autofocus x-model="when">
+        <span class="muted small" x-show="when" x-cloak
+              x-text="new Date(when) < new Date()
+                ? 'In the past: recorded as played.'
+                : 'In the future: shows as planned on the dashboard.'"></span>
+        <span class="muted small">Times are in the group's time zone. Sessions are numbered by date.</span>
+      </div>
+
+      <div class="field">
+        <label for="title">Title <span class="muted">(optional)</span></label>
+        <input id="title" name="title" type="text" maxlength="100"
+               value="{{ form.title if form else "" }}">
+      </div>
+
+      <fieldset class="attendance-picker">
+        <legend>Attending</legend>
+        {% if members %}
+          <div class="checkbox-list">
+            {% for m in members %}
+              <label><input type="checkbox" name="user_ids" value="{{ m.user_id }}"
+                            {% if m.user_id in checked_ids %}checked{% endif %}> {{ m.display_name }}</label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted small">No members yet.</p>
+        {% endif %}
+      </fieldset>
+
+      <div class="row">
+        <button type="submit" class="button">Add session</button>
+        <a href="/campaigns/{{ campaign.id }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -27,3 +27,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [profile.dev.package.argon2]
 opt-level = 3
+
+# Release builds for the Pi: smaller and a bit faster binary, at the cost of build time.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

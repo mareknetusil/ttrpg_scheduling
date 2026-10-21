@@ -1,0 +1,12 @@
+# /etc/systemd/system/ttrpg-scheduling-backup.timer — see docs/DEPLOY.md
+[Unit]
+Description=Nightly backup of the TTRPG Scheduling database
+
+[Timer]
+OnCalendar=*-*-* 04:00
+RandomizedDelaySec=15m
+# Run at the next boot if the Pi was off at 04:00.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

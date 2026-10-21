@@ -1,0 +1,55 @@
+# /etc/systemd/system/ttrpg-scheduling.service — see docs/DEPLOY.md
+[Unit]
+Description=TTRPG Scheduling web app
+# Binding to the VPN address needs the VPN interface; keep retrying until it's up.
+After=network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ttrpg
+Group=ttrpg
+# templates/ and static/ are resolved relative to the working directory.
+WorkingDirectory=/opt/ttrpg-scheduling
+# DATABASE_URL, BIND_ADDR, DISPLAY_TZ, RUST_LOG
+EnvironmentFile=/etc/ttrpg-scheduling.env
+ExecStart=/opt/ttrpg-scheduling/ttrpg-scheduling
+Restart=on-failure
+RestartSec=5
+# SIGTERM → graceful shutdown (in-flight requests finish).
+TimeoutStopSec=15
+
+# The database lives in /var/lib/ttrpg-scheduling (created and owned by systemd).
+StateDirectory=ttrpg-scheduling
+StateDirectoryMode=0750
+UMask=0027
+
+# Sandboxing: the app only needs to read /opt/ttrpg-scheduling, write its state directory and
+# open TCP sockets.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# The app uses a few tens of MB; this stops a runaway from taking the whole Pi.
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

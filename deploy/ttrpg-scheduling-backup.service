@@ -1,0 +1,24 @@
+# /etc/systemd/system/ttrpg-scheduling-backup.service — run by the .timer, see docs/DEPLOY.md
+[Unit]
+Description=Back up the TTRPG Scheduling database
+
+[Service]
+Type=oneshot
+User=ttrpg
+Group=ttrpg
+WorkingDirectory=/opt/ttrpg-scheduling
+EnvironmentFile=/etc/ttrpg-scheduling.env
+StateDirectory=ttrpg-scheduling
+UMask=0027
+ExecStartPre=/bin/mkdir -p /var/lib/ttrpg-scheduling/backups
+# `backup` uses VACUUM INTO: a consistent copy, safe while the app is running.
+ExecStart=/bin/sh -c 'exec /opt/ttrpg-scheduling/ttrpg-scheduling backup "/var/lib/ttrpg-scheduling/backups/app-$(date -u +%%Y-%%m-%%dT%%H%%M%%S).db"'
+# Keep two weeks on the Pi; copies that must survive the SD card are pulled off it (DEPLOY.md).
+ExecStartPost=/usr/bin/find /var/lib/ttrpg-scheduling/backups -name 'app-*.db' -mtime +14 -delete
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX

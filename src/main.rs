@@ -95,6 +95,40 @@ async fn markdown_preview(
     Html(markdown::render(&source))
 }
 
+/// `GET /healthz`: 200 when the database answers. For the deploy script and monitoring.
+async fn healthz(State(state): State<Arc<AppState>>) -> Result<String, error::AppError> {
+    sqlx::query("SELECT 1").execute(&state.db).await?;
+    Ok(format!("ok {}\n", env!("APP_VERSION")))
+}
+
+/// Resolves on Ctrl+C, or on SIGTERM (what `systemctl stop` sends). In-flight requests then
+/// finish before the server exits, and the SQLite pool closes cleanly.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.ok();
+    };
+    // SIGTERM only exists on Unix; `cfg` compiles the other branch on other platforms.
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "can't listen for SIGTERM");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    tracing::info!("shutting down");
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -114,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
             username,
             display_name,
         }) => cli::create_admin(&db, username, display_name).await,
+        Some(cli::Command::Backup { destination }) => cli::backup(&db, &destination).await,
         None => serve(config, db).await,
     }
 }
@@ -121,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
 async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
     let mut env = Environment::new();
     env.set_loader(minijinja::path_loader("templates"));
+    env.add_global("app_version", env!("APP_VERSION"));
     let state = AppState {
         templates: env,
         db,
@@ -147,6 +183,7 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
         .nest("/polls", polls::router())
         .nest("/invite", invites::router())
         .route("/markdown/preview", post(markdown_preview))
+        .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)
@@ -155,8 +192,11 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await
         .with_context(|| format!("failed to bind {}", config.bind_addr))?;
-    tracing::info!(addr = %listener.local_addr()?, "listening");
-    axum::serve(listener, app).await?;
+    tracing::info!(addr = %listener.local_addr()?, version = env!("APP_VERSION"), "listening");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    tracing::info!("shut down");
 
     Ok(())
 }

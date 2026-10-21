@@ -108,7 +108,10 @@ finished. Keep the code simple and explicit so the owner can still read and main
   `Database`, `Internal` wrapping `anyhow::Error`) are logged and returned as a generic 500; the
   response body never contains internal error text. `NotFound` returns a 404, and `Unauthorized`
   redirects to `/login`.
-- `build.rs`: makes cargo rebuild when `migrations/` changes (needed by `sqlx::migrate!()`).
+- `build.rs`: makes cargo rebuild when `migrations/` changes (needed by `sqlx::migrate!()`), and
+  sets `APP_VERSION` (`0.1.0+<git commit>`), shown in the footer and by `GET /healthz`.
+- `deploy/`: systemd units (hardened service, nightly backup timer) and the env file example.
+  `scripts/deploy.sh` builds and deploys. Runbook: `docs/DEPLOY.md`.
 
 ## Commands
 
@@ -124,6 +127,7 @@ cargo run                      # dev server on 0.0.0.0:8080 (run from repo root:
                                # static/ are resolved relative to the working directory)
 RUST_LOG=debug cargo run       # override the default log filter "info,tower_http=debug"
 cargo run -- create-admin <username> "<Display Name>"   # create an admin (prompts for password)
+cargo run -- backup <file>     # consistent copy of the DB (VACUUM INTO), safe while serving
 cargo check                    # fast type check
 cargo clippy --all-targets     # lints, keep warnings at zero
 cargo fmt                      # format
@@ -132,8 +136,9 @@ sqlx migrate add <name>        # new migration (needs: cargo install sqlx-cli)
 sqlx migrate run               # apply migrations (the app also runs them on startup)
 sqlx database reset            # dev only: drop, recreate and re-migrate data/dev.db
 
-# Release build for the Pi (64-bit Raspberry Pi OS)
+# Release build for the Pi (64-bit Raspberry Pi OS); runs locally via qemu-aarch64 (binfmt)
 cargo zigbuild --release --target aarch64-unknown-linux-musl
+PI_HOST=pi@raspberrypi HEALTH_URL=http://<vpn-ip>:8080/healthz scripts/deploy.sh   # see docs/DEPLOY.md
 ```
 
 ## Conventions

@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M9 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M10 done.
 
 ## 1. Goals and non-goals
 
@@ -384,13 +384,17 @@ sqlx compile-time query checks also run on the desktop against the dev DB, so th
 - A **systemd service** (no Docker; it isn't worth the RAM and disk overhead on a Pi 3), running
   as its own user, binding to the VPN interface address only (e.g. `BIND_ADDR=100.x.y.z:8080`
   for Tailscale).
-- A small deploy script (`scripts/deploy.sh`): zigbuild → rsync → `systemctl restart`.
+- A small deploy script (`scripts/deploy.sh`): zigbuild → backup → rsync → `systemctl restart`
+  → health check. Units and env file are in `deploy/`; the full runbook is `docs/DEPLOY.md`.
+- The data lives in `/var/lib/ttrpg-scheduling` (systemd `StateDirectory=`), not next to the
+  binary, so a deploy never touches it.
 
 ### 8.4 Pi-specific considerations
 
 - **SD card wear and corruption:** SQLite in WAL mode with `synchronous=NORMAL`. Write volume is
-  tiny anyway. Backups must leave the card: nightly `sqlite3 data.db ".backup …"` via a systemd
-  timer, then copy it off the Pi (e.g. pull from the desktop/NAS with rsync).
+  tiny anyway. Backups must leave the card: nightly `ttrpg-scheduling backup <file>` (SQLite
+  `VACUUM INTO`, so no `sqlite3` package is needed) via a systemd timer, then copy it off the Pi
+  (e.g. pull from the desktop/NAS with rsync).
 - **Argon2 cost:** the default parameters (~19 MiB memory) take a noticeable fraction of a second
   on a Cortex-A53. That's fine for logins and only happens at login time. Don't lower them
   unless it becomes a real problem.
@@ -428,7 +432,7 @@ version is worth using.
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | done |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | done |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | done |
-| M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | |
+| M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | done |
 | M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | |
 
 ### 10.1 M11: end-to-end tests (plan)

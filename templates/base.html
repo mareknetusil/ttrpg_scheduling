@@ -33,7 +33,10 @@
   </main>
 
   <footer class="site-footer">
-    <div class="container">Roll for initiative.</div>
+    <div class="container site-footer__inner">
+      <span>Roll for initiative.</span>
+      {% if app_version %}<span class="site-footer__version">v{{ app_version }}</span>{% endif %}
+    </div>
   </footer>
 </body>
 </html>

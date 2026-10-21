@@ -7,8 +7,11 @@
      can_manage    bool: GM of this campaign or site admin (shows Edit, New page)
      pages         list of { title, slug }: the campaign's wiki pages
      sessions      list of { id, number, title, when: When, status }: planned upcoming game sessions
-     polls         list of { id, title, status, option_count, my_vote_count }: open polls first,
-                   then the most recent closed ones #}
+     polls         list of { id, title, status, option_count, my_vote_count }: scheduling polls,
+                   open ones first, then the most recent closed ones
+     questions     list of poll views (R8 polls, see polls/_poll.html) on the campaign itself
+     comments      list of comment views (see comments/_comment.html) on the campaign itself
+     can_comment   bool: a member #}
 
 {% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -37,14 +40,22 @@
 {% endif %}
 
 <div class="campaign-layout">
-  <section class="card campaign-layout__main">
-    <h2>About</h2>
-    {% if description_html %}
-      <div class="prose">{{ description_html|safe }}</div>
-    {% else %}
-      <p class="muted">No description yet.</p>
-    {% endif %}
-  </section>
+  <div class="campaign-layout__main">
+    <section class="card">
+      <h2>About</h2>
+      {% if description_html %}
+        <div class="prose">{{ description_html|safe }}</div>
+      {% else %}
+        <p class="muted">No description yet.</p>
+      {% endif %}
+    </section>
+
+    {% set new_poll_url = "/campaigns/" ~ campaign.id ~ "/polls/new" %}
+    {% include "polls/_section.html" %}
+
+    {% set comment_post_url = "/campaigns/" ~ campaign.id ~ "/comments" %}
+    {% include "comments/_section.html" %}
+  </div>
 
   <aside class="campaign-layout__side">
     <section class="card">

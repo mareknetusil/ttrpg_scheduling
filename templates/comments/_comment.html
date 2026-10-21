@@ -1,0 +1,21 @@
+{# One comment. Rendered inside the comment list and on its own as an htmx fragment
+   (after posting, saving an edit, or cancelling one).
+   Context: c = { id, author_name, body_md, body_html (sanitized), created: When, edited,
+                  can_edit, can_delete } #}
+<article class="comment" id="comment-{{ c.id }}">
+  <header class="comment__head">
+    <strong>{{ c.author_name }}</strong>
+    <span class="muted small"><time datetime="{{ c.created.iso }}">{{ c.created.date }}, {{ c.created.time }}</time>{% if c.edited %} · edited{% endif %}</span>
+    <span class="comment__actions">
+      {% if c.can_edit %}
+        <button type="button" class="link-button small" hx-get="/comments/{{ c.id }}/edit"
+                hx-target="closest article" hx-swap="outerHTML">Edit</button>
+      {% endif %}
+      {% if c.can_delete %}
+        <button type="button" class="link-button link-button--danger small" hx-delete="/comments/{{ c.id }}"
+                hx-target="closest article" hx-swap="delete" hx-confirm="Delete this comment?">Delete</button>
+      {% endif %}
+    </span>
+  </header>
+  <div class="prose">{{ c.body_html|safe }}</div>
+</article>

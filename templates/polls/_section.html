@@ -1,0 +1,15 @@
+{# The polls section of a campaign or game session page (included).
+   Context: questions (list of poll views, see _poll.html), can_manage, new_poll_url #}
+{% if questions or can_manage %}
+  <section class="polls" id="polls">
+    <div class="section-head">
+      <h2 class="section-title">Polls</h2>
+      {% if can_manage %}<a class="button button--secondary button--small" href="{{ new_poll_url }}">New poll</a>{% endif %}
+    </div>
+    {% for p in questions %}
+      {% include "polls/_poll.html" %}
+    {% else %}
+      <p class="muted small">No polls yet.</p>
+    {% endfor %}
+  </section>
+{% endif %}

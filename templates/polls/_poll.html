@@ -1,0 +1,59 @@
+{# One poll (R8). Rendered in the polls section and on its own as an htmx fragment after
+   voting or closing.
+   Context: p = { id, question, description_html (sanitized), multiple_choice, is_closed,
+                  closes: When?, options: [{ id, label, count, percent, voters: [name], mine }],
+                  voter_count, has_voted, can_vote, can_manage }
+   Requests: POST /polls/{id}/vote (repeated option_ids), POST /polls/{id}/close; both answer
+   with this fragment #}
+<article class="card poll" id="poll-{{ p.id }}">
+  <header class="poll__head">
+    <h3>{{ p.question }}</h3>
+    <p class="muted small">
+      {% if p.is_closed %}Closed{% elif p.closes %}Closes <time datetime="{{ p.closes.iso }}">{{ p.closes.full }}</time>{% else %}Open{% endif %}
+      · {{ p.voter_count }} voted
+      · {{ "pick any" if p.multiple_choice else "pick one" }}
+    </p>
+  </header>
+  {% if p.description_html %}<div class="prose poll__description">{{ p.description_html|safe }}</div>{% endif %}
+
+  {% if p.can_vote %}
+    <form class="poll__form" hx-post="/polls/{{ p.id }}/vote" hx-target="closest article" hx-swap="outerHTML">
+      {% for o in p.options %}
+        <label class="poll-option">
+          <input type="{{ 'checkbox' if p.multiple_choice else 'radio' }}" name="option_ids" value="{{ o.id }}"
+                 {% if o.mine %}checked{% endif %}>
+          <span class="poll-option__body">
+            <span class="poll-option__label">{{ o.label }}</span>
+            {% if p.has_voted %}
+              <span class="poll-bar"><span style="width: {{ o.percent }}%"></span></span>
+              <span class="muted small">{{ o.count }}{% if o.voters %} · {{ o.voters|join(", ") }}{% endif %}</span>
+            {% endif %}
+          </span>
+        </label>
+      {% endfor %}
+      <div class="row row--tight">
+        <button type="submit" class="button button--small">{{ "Change vote" if p.has_voted else "Vote" }}</button>
+        {% if not p.has_voted %}<span class="muted small">Results show after you vote.</span>{% endif %}
+      </div>
+    </form>
+  {% else %}
+    <ul class="poll-results">
+      {% for o in p.options %}
+        <li class="poll-option{% if o.mine %} is-mine{% endif %}">
+          <span class="poll-option__body">
+            <span class="poll-option__label">{{ o.label }}{% if o.mine %} <span class="muted small">(your vote)</span>{% endif %}</span>
+            <span class="poll-bar"><span style="width: {{ o.percent }}%"></span></span>
+            <span class="muted small">{{ o.count }}{% if o.voters %} · {{ o.voters|join(", ") }}{% endif %}</span>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if p.can_manage and not p.is_closed %}
+    <p class="poll__manage">
+      <button type="button" class="link-button link-button--danger small" hx-post="/polls/{{ p.id }}/close"
+              hx-target="closest article" hx-swap="outerHTML" hx-confirm="Close this poll? Nobody can vote afterwards.">Close poll</button>
+    </p>
+  {% endif %}
+</article>

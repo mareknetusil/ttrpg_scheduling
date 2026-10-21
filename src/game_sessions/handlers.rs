@@ -256,6 +256,9 @@ async fn render_session(
         .iter()
         .map(|e| EntryView::new(e, can_edit_entry(e, user, access), state.tz))
         .collect();
+    let comments =
+        crate::comments::views(state, campaign.id, Some(session.id), user, access).await?;
+    let questions = crate::polls::views(state, campaign.id, Some(session.id), user, access).await?;
     state.render(
         "sessions/show.html",
         context! {
@@ -273,6 +276,8 @@ async fn render_session(
             session_form => Serde(errors.session_form),
             entry_error => errors.entry,
             entry_form => Serde(errors.entry_form),
+            comments => Serde(&comments),
+            questions => Serde(&questions),
         },
     )
 }

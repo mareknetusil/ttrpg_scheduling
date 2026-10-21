@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_markdown.html" import markdown_field %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }
+     session       optional { id, number, title, ... }: the poll is for this game session
+     form          optional { question, description_md, multiple_choice ("on" or none), closes_at,
+                   options: [string], game_session_id }: refill after an error
+     error         optional string
+
+   Requests:
+     POST /campaigns/{id}/polls   fields question, description_md, multiple_choice (checkbox),
+                                  closes_at (datetime-local, may be empty), options (repeated),
+                                  game_session_id (optional) #}
+
+{% block title %}New poll · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb">
+    {% if session %}
+      <a href="/sessions/{{ session.id }}">← Session {{ session.number }}{% if session.title %}: {{ session.title }}{% endif %}</a>
+    {% else %}
+      <a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a>
+    {% endif %}
+  </p>
+  <h1>New poll</h1>
+  <p class="muted">{% if session %}For session {{ session.number }}.{% else %}For the whole campaign.{% endif %} Every member can vote and sees who voted for what.</p>
+
+  <div class="card">
+    {% if error %}<p class="alert alert--error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/polls" class="form"
+          x-data='{ options: {{ (form.options if form and form.options|length >= 2 else (form.options + [""] if form and form.options else ["", ""]))|tojson }} }'>
+      {% if session %}<input type="hidden" name="game_session_id" value="{{ session.id }}">{% endif %}
+      <div class="field">
+        <label for="question">Question</label>
+        <input id="question" name="question" type="text" required maxlength="200" autofocus
+               value="{{ form.question if form else "" }}">
+      </div>
+
+      {{ markdown_field("description_md", "Details", form.description_md if form else "", rows=3) }}
+
+      <fieldset class="field date-list">
+        <legend>Options</legend>
+        <template x-for="(value, i) in options" :key="i">
+          <div class="date-list__row">
+            <input type="text" name="options" x-model="options[i]" maxlength="200" :aria-label="'Option ' + (i + 1)">
+            <button type="button" class="link-button link-button--danger" @click="options.splice(i, 1)"
+                    x-show="options.length > 2">Remove</button>
+          </div>
+        </template>
+        <div><button type="button" class="button button--secondary button--small" @click="options.push('')"
+                     x-show="options.length < 20">+ Add option</button></div>
+      </fieldset>
+
+      <label class="checkbox">
+        <input type="checkbox" name="multiple_choice" {% if form and form.multiple_choice %}checked{% endif %}>
+        Members may pick more than one option
+      </label>
+
+      <div class="field">
+        <label for="closes_at">Close automatically at <span class="muted">(optional)</span></label>
+        <input id="closes_at" name="closes_at" type="datetime-local" value="{{ form.closes_at if form else "" }}">
+      </div>
+
+      <div class="row">
+        <button type="submit" class="button">Create poll</button>
+        <a href="{% if session %}/sessions/{{ session.id }}{% else %}/campaigns/{{ campaign.id }}{% endif %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

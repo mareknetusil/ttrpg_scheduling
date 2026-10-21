@@ -1,0 +1,15 @@
+{# Inline edit form for one comment (htmx fragment, swapped over the comment).
+   Context: c = { id, body_md, ... }
+   Requests: PUT /comments/{id} (field body_md) and GET /comments/{id} (cancel); both answer
+   with comments/_comment.html #}
+<article class="comment comment--editing" id="comment-{{ c.id }}">
+  <form class="form" hx-put="/comments/{{ c.id }}" hx-target="closest article" hx-swap="outerHTML">
+    <label for="comment-edit-{{ c.id }}" class="visually-hidden">Edit comment</label>
+    <textarea id="comment-edit-{{ c.id }}" name="body_md" rows="4" required autofocus>{{ c.body_md }}</textarea>
+    <div class="row row--tight">
+      <button type="submit" class="button button--small">Save</button>
+      <button type="button" class="link-button" hx-get="/comments/{{ c.id }}"
+              hx-target="closest article" hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</article>

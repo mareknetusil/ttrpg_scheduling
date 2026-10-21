@@ -574,6 +574,50 @@ input[type="datetime-local"] {
 .history__main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .history__item.is-cancelled .history__main strong { text-decoration: line-through; color: var(--muted); }
 
+/* ---------- Comments ---------- */
+.comment-list { display: flex; flex-direction: column; }
+.comment { padding-block: var(--space-3); border-bottom: 1px solid var(--border); }
+.comment:first-child { padding-top: 0; }
+.comment__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); margin-bottom: var(--space-1); }
+.comment__actions { margin-left: auto; display: flex; gap: var(--space-3); }
+.comment textarea, .comment-form textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.comment-form { margin-top: var(--space-3); gap: var(--space-2); }
+
+/* ---------- Polls ---------- */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.poll { scroll-margin-top: var(--space-4); }
+.poll__head h3 { margin: 0; font-size: 1.15rem; }
+.poll__head p { margin: var(--space-1) 0 var(--space-3); }
+.poll__description { margin-bottom: var(--space-3); }
+.poll-results { list-style: none; margin: 0; padding: 0; }
+.poll-option { display: flex; align-items: flex-start; gap: var(--space-2); padding-block: var(--space-2); }
+.poll__form .poll-option { cursor: pointer; }
+.poll-option input { margin-top: 0.3em; }
+.poll-option__body { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
+.poll-option.is-mine .poll-option__label { font-weight: 600; }
+.poll-bar { display: block; height: 0.4rem; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.poll-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.poll__manage { margin: var(--space-2) 0 0; }
+.checkbox { display: flex; align-items: center; gap: var(--space-2); }
+.date-list__row input[type="text"] {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 /* Medium-width column for forms like "new campaign" */
 .narrow { max-width: 40rem; margin-inline: auto; }
 

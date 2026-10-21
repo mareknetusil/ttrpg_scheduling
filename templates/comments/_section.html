@@ -1,0 +1,22 @@
+{# The comments card of a campaign or game session page (included).
+   Context: comments (list of comment views, see _comment.html), can_comment (bool: a member),
+            comment_post_url (POST /campaigns/{id}/comments or /sessions/{id}/comments, field
+            body_md; answers with the new comment, appended to #comment-list) #}
+<section class="card comments" id="comments">
+  <h2>Comments</h2>
+  <div id="comment-list" class="comment-list">
+    {% for c in comments %}
+      {% include "comments/_comment.html" %}
+    {% else %}
+      <p class="muted small" id="no-comments">No comments yet.</p>
+    {% endfor %}
+  </div>
+  {% if can_comment %}
+    <form class="form comment-form" hx-post="{{ comment_post_url }}" hx-target="#comment-list" hx-swap="beforeend"
+          hx-on::after-request="if (event.detail.successful) { this.reset(); document.getElementById('no-comments')?.remove(); }">
+      <label for="comment-body" class="visually-hidden">Write a comment</label>
+      <textarea id="comment-body" name="body_md" rows="3" required placeholder="Write a comment… (Markdown works)"></textarea>
+      <div><button type="submit" class="button button--small">Comment</button></div>
+    </form>
+  {% endif %}
+</section>

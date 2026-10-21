@@ -17,6 +17,8 @@
                                    (session_form = { title, starts_at, status })
      entry_error, entry_form       optional: the new-entry form came back with an error
                                    (entry_form = { kind, title, body_md })
+     questions      list of poll views (R8, see polls/_poll.html) on this session
+     comments       list of comment views (see comments/_comment.html) on this session
 
    Requests:
      POST   /sessions/{id}              fields title, starts_at (datetime-local), status (GM/admin)
@@ -129,6 +131,13 @@
         </form>
       </section>
     {% endif %}
+
+    {% set new_poll_url = "/campaigns/" ~ campaign.id ~ "/polls/new?session_id=" ~ session.id %}
+    {% include "polls/_section.html" %}
+
+    {% set can_comment = can_write %}
+    {% set comment_post_url = "/sessions/" ~ session.id ~ "/comments" %}
+    {% include "comments/_section.html" %}
   </section>
 
   <aside class="campaign-layout__side">

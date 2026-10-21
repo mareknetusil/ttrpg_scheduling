@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M8 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M9 done.
 
 ## 1. Goals and non-goals
 
@@ -163,7 +163,7 @@ game_session_entries                   -- R5
 
 comments                               -- R7
   id, campaign_id, game_session_id NULL, author_id, body_md,
-  created_at, edited_at NULL, deleted_at NULL
+  created_at, edited_at NULL           -- deleting removes the row
 
 polls                                  -- R8
   id, campaign_id, game_session_id NULL, question, description_md,
@@ -199,6 +199,9 @@ poll_votes
 - Sessions are numbered in creation order (`MAX(number) + 1`), so a session added by hand for
   an earlier date gets the next number, not a chronological one. Sessions are never deleted;
   the GM marks them cancelled.
+- Poll results are hidden from a member until they vote (to avoid bandwagoning), then shown with
+  voter names; closed polls show results to everyone. Polls with `closes_at` in the past count as
+  closed without a write.
 - Votes count only for current members: the grid shows one column per member, and attendance
   is pre-filled only with yes-voters who are still members.
 
@@ -295,12 +298,15 @@ POST /sessions/{id}/entries                            # add an entry (members)
 GET  /entries/{id}/edit, POST /entries/{id}            # edit an entry (author or GM/admin)
 DELETE /entries/{id}                                   # htmx
 
-POST /campaigns/{id}/comments, POST /sessions/{id}/comments   # (fragment) new comment
-POST /comments/{id}, POST /comments/{id}/delete               # (fragment)
+POST /campaigns/{id}/comments, POST /sessions/{id}/comments   # htmx, field body_md; (fragment) the new comment
+GET  /comments/{id}/edit                               # (fragment) inline edit form (author)
+GET  /comments/{id}, PUT /comments/{id}                # (fragment) the comment (cancel / save)
+DELETE /comments/{id}                                  # htmx (author, or GM/admin)
 
-POST /campaigns/{id}/polls, POST /sessions/{id}/polls
-POST /polls/{id}/vote                                  # (fragment) updated results
-POST /polls/{id}/close
+GET  /campaigns/{id}/polls/new[?session_id=]           # new poll (GM/admin), for the campaign or a session
+POST /campaigns/{id}/polls                             # fields …, options (repeated), game_session_id?
+POST /polls/{id}/vote                                  # htmx, repeated option_ids; (fragment) the poll
+POST /polls/{id}/close                                 # htmx (GM/admin); (fragment) the poll
 
 POST /markdown/preview                                 # (fragment) for the editor preview tab
 ```
@@ -421,7 +427,7 @@ version is worth using.
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | done |
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | done |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | done |
-| M9 | Comments and polls | generic helpers if (and only if) duplication appears | |
+| M9 | Comments and polls | generic helpers if (and only if) duplication appears | done |
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | |
 | M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | |
 

@@ -1,6 +1,7 @@
 mod auth;
 mod campaigns;
 mod cli;
+mod comments;
 mod config;
 mod db;
 mod error;
@@ -8,6 +9,7 @@ mod game_sessions;
 mod invites;
 mod markdown;
 mod pages;
+mod polls;
 mod scheduling;
 mod time;
 
@@ -138,6 +140,11 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
         .nest("/sessions", game_sessions::router())
         .nest("/entries", game_sessions::entries_router())
         .nest("/campaigns/{id}", game_sessions::campaign_router())
+        .nest("/campaigns/{id}", comments::campaign_router())
+        .nest("/sessions/{id}", comments::session_router())
+        .nest("/comments", comments::router())
+        .nest("/campaigns/{id}/polls", polls::campaign_router())
+        .nest("/polls", polls::router())
         .nest("/invite", invites::router())
         .route("/markdown/preview", post(markdown_preview))
         .nest_service("/static", ServeDir::new("static"))

@@ -84,6 +84,10 @@ finished. Keep the code simple and explicit so the owner can still read and main
   point for every campaign-scoped feature module.
 - `src/invites/`: `GET/POST /invite/{token}` (show, join) and `/invite/{token}/register`.
 - `src/pages/`: campaign wiki pages, nested at `/campaigns/{id}/pages`.
+- `src/comments/`, `src/polls/`: comments and polls (R7, R8) on a campaign or a game session.
+  Each exposes `views(state, campaign_id, session_id, user, access)` for the page that embeds it;
+  the htmx endpoints answer with the partials `comments/_comment.html` / `polls/_poll.html`.
+  Partials (`_*.html`) are included by pages and also rendered alone as fragments.
 - `src/markdown.rs`: `render()` (Markdown → sanitized HTML) and `slugify()`.
 - `src/scheduling/`: scheduling polls (`/campaigns/{id}/schedule/new`, `/schedule/{poll_id}`),
   htmx voting grid (`PUT .../vote` returns the `grid` block), decide → game session.

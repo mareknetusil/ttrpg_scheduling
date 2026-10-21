@@ -1,4 +1,6 @@
-use super::model::{Attendee, GameSession, SessionStatus, UpcomingRow};
+use super::model::{
+    Attendee, Entry, EntryForm, EntryKind, GameSession, HistoryRow, SessionStatus, UpcomingRow,
+};
 use sqlx::sqlite::SqlitePool;
 
 pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<GameSession>, sqlx::Error> {
@@ -60,4 +62,153 @@ pub async fn upcoming_for_user(
     )
     .fetch_all(db)
     .await
+}
+
+pub async fn history(db: &SqlitePool, campaign_id: i64) -> Result<Vec<HistoryRow>, sqlx::Error> {
+    sqlx::query_as!(
+        HistoryRow,
+        r#"SELECT s.id, s.campaign_id, s.number, s.title, s.starts_at, s.status AS "status: SessionStatus",
+                  (SELECT COUNT(*) FROM game_session_attendance WHERE game_session_id = s.id) AS "attendee_count!: i64",
+                  (SELECT COUNT(*) FROM game_session_entries WHERE game_session_id = s.id) AS "entry_count!: i64"
+           FROM game_sessions AS s WHERE s.campaign_id = ?
+           ORDER BY s.starts_at DESC"#,
+        campaign_id
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Adds a session by hand (not from a poll), with the next number of the campaign.
+pub async fn create(
+    db: &SqlitePool,
+    campaign_id: i64,
+    title: &str,
+    starts_at: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"INSERT INTO game_sessions (campaign_id, number, title, starts_at)
+           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = ?), ?, ?)
+           RETURNING id AS "id!""#,
+        campaign_id,
+        campaign_id,
+        title,
+        starts_at
+    )
+    .fetch_one(db)
+    .await
+}
+
+pub async fn update(
+    db: &SqlitePool,
+    id: i64,
+    title: &str,
+    starts_at: &str,
+    status: SessionStatus,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE game_sessions SET title = ?, starts_at = ?, status = ? WHERE id = ?",
+        title,
+        starts_at,
+        status,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Replaces the attendance. Ids that aren't members of the campaign are ignored.
+pub async fn set_attendance(
+    db: &SqlitePool,
+    session_id: i64,
+    campaign_id: i64,
+    user_ids: &[i64],
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "DELETE FROM game_session_attendance WHERE game_session_id = ?",
+        session_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    for user_id in user_ids {
+        sqlx::query!(
+            "INSERT OR IGNORE INTO game_session_attendance (game_session_id, user_id)
+             SELECT ?, user_id FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
+            session_id,
+            campaign_id,
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn entries(db: &SqlitePool, session_id: i64) -> Result<Vec<Entry>, sqlx::Error> {
+    sqlx::query_as!(
+        Entry,
+        r#"SELECT e.id, e.game_session_id, e.kind AS "kind: EntryKind", e.title, e.body_md,
+                  e.author_id, u.display_name AS author_name, e.created_at, e.updated_at
+           FROM game_session_entries AS e JOIN users AS u ON u.id = e.author_id
+           WHERE e.game_session_id = ? ORDER BY e.created_at, e.id"#,
+        session_id
+    )
+    .fetch_all(db)
+    .await
+}
+
+pub async fn entry(db: &SqlitePool, id: i64) -> Result<Option<Entry>, sqlx::Error> {
+    sqlx::query_as!(
+        Entry,
+        r#"SELECT e.id, e.game_session_id, e.kind AS "kind: EntryKind", e.title, e.body_md,
+                  e.author_id, u.display_name AS author_name, e.created_at, e.updated_at
+           FROM game_session_entries AS e JOIN users AS u ON u.id = e.author_id
+           WHERE e.id = ?"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn create_entry(
+    db: &SqlitePool,
+    session_id: i64,
+    author_id: i64,
+    form: &EntryForm,
+) -> Result<i64, sqlx::Error> {
+    let id = sqlx::query!(
+        "INSERT INTO game_session_entries (game_session_id, kind, title, body_md, author_id) VALUES (?, ?, ?, ?, ?)",
+        session_id,
+        form.kind,
+        form.title,
+        form.body_md,
+        author_id
+    )
+    .execute(db)
+    .await?
+    .last_insert_rowid();
+    Ok(id)
+}
+
+pub async fn update_entry(db: &SqlitePool, id: i64, form: &EntryForm) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE game_session_entries SET kind = ?, title = ?, body_md = ?,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+        form.kind,
+        form.title,
+        form.body_md,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_entry(db: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM game_session_entries WHERE id = ?", id)
+        .execute(db)
+        .await?;
+    Ok(())
 }

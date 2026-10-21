@@ -89,7 +89,8 @@ finished. Keep the code simple and explicit so the owner can still read and main
   htmx voting grid (`PUT .../vote` returns the `grid` block), decide → game session.
   `pattern.rs`: regular slots ("Fri, Sat at 18:00, every week") → candidate dates, with unit
   tests; managed at `/campaigns/{id}/schedule/patterns`.
-- `src/game_sessions/`: game sessions (`/sessions/{id}`), upcoming lists for dashboard/campaign.
+- `src/game_sessions/`: game sessions (`/sessions/{id}`: edit, attendance, entries), entries
+  (`/entries/{id}`), history (`/campaigns/{id}/history`), upcoming lists for dashboard/campaign.
 - `src/time.rs`: UTC DB strings ↔ `chrono`; `parse_local` for `datetime-local` inputs in
   `DISPLAY_TZ`; `When`, the struct templates get for any timestamp (`iso`, `date`, `time`, `full`,
   `input`, `is_past`).

@@ -136,6 +136,8 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
         .nest("/campaigns/{id}/schedule", scheduling::campaign_router())
         .nest("/schedule", scheduling::router())
         .nest("/sessions", game_sessions::router())
+        .nest("/entries", game_sessions::entries_router())
+        .nest("/campaigns/{id}", game_sessions::campaign_router())
         .nest("/invite", invites::router())
         .route("/markdown/preview", post(markdown_preview))
         .nest_service("/static", ServeDir::new("static"))

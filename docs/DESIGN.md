@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M7 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M8 done.
 
 ## 1. Goals and non-goals
 
@@ -158,7 +158,7 @@ game_session_attendance                -- R4
   game_session_id, user_id, PK (game_session_id, user_id)
 
 game_session_entries                   -- R5
-  id, game_session_id, kind ('recap' | 'notes' | 'loot' | 'other'), title, body_md,
+  id, game_session_id, kind ('recap' | 'notes' | 'loot' | 'other'), title ('' = none), body_md,
   author_id, created_at, updated_at
 
 comments                               -- R7
@@ -196,6 +196,9 @@ poll_votes
   `CHECK` keeps `schedule_polls.status = 'decided'` in sync with its two decision columns.
 - Deciding a poll gives the session no title (the poll title is usually "Session 12", which
   would duplicate the number); the GM can add one on the session page.
+- Sessions are numbered in creation order (`MAX(number) + 1`), so a session added by hand for
+  an earlier date gets the next number, not a chronological one. Sessions are never deleted;
+  the GM marks them cancelled.
 - Votes count only for current members: the grid shows one column per member, and attendance
   is pre-filled only with yes-voters who are still members.
 
@@ -274,6 +277,7 @@ GET  /campaigns/{id}/pages/{slug}                      # view (members)
 GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # edit (GM/admin)
 DELETE /campaigns/{id}/pages/{slug}                    # htmx, HX-Redirect to the campaign
 GET  /campaigns/{id}/history                           # list of game sessions
+POST /campaigns/{id}/sessions                          # add a session by hand (GM/admin)
 
 GET  /campaigns/{id}/schedule/new                      # ?pattern_id=&weeks= fills dates from a slot
 POST /campaigns/{id}/schedule
@@ -285,8 +289,11 @@ POST /schedule/{poll_id}/decide                        # field option_id; redire
 POST /schedule/{poll_id}/cancel
 
 GET  /sessions/{id}                                    # game session page: entries, attendance, comments, polls
-POST /sessions/{id}/attendance
-POST /sessions/{id}/entries, POST /entries/{id}, POST /entries/{id}/delete
+POST /sessions/{id}                                    # edit title, date, status (GM/admin)
+POST /sessions/{id}/attendance                         # repeated user_ids (GM/admin)
+POST /sessions/{id}/entries                            # add an entry (members)
+GET  /entries/{id}/edit, POST /entries/{id}            # edit an entry (author or GM/admin)
+DELETE /entries/{id}                                   # htmx
 
 POST /campaigns/{id}/comments, POST /sessions/{id}/comments   # (fragment) new comment
 POST /comments/{id}, POST /comments/{id}/delete               # (fragment)
@@ -413,7 +420,7 @@ version is worth using.
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | done |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | done |
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | done |
-| M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |
+| M8 | Game session history, attendance, entries | putting it together; refactoring shared code | done |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | |
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | |
 | M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | |

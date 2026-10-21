@@ -527,6 +527,53 @@ input[type="datetime-local"] {
 .cell--no { color: var(--danger); background: var(--danger-soft); }
 .cell--none { color: var(--muted); }
 
+/* ---------- Game sessions ---------- */
+.status {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.status--planned { background: var(--accent-soft); color: var(--accent); }
+.status--played { background: var(--success-soft); color: var(--success); }
+.status--cancelled { background: var(--danger-soft); color: var(--danger); }
+
+.entry { scroll-margin-top: var(--space-4); }
+.entry__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.entry__head p { margin: var(--space-1) 0 0; }
+.entry__title { margin-left: var(--space-1); font-family: var(--font-display); font-size: 1.1rem; }
+.entry__actions { display: flex; gap: var(--space-3); align-items: center; white-space: nowrap; }
+
+.segmented { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.segmented legend { font-weight: 600; padding: 0; margin-bottom: var(--space-1); width: 100%; }
+.checkbox-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.inline-form--flush { margin-top: 0; }
+.inline-form select { padding: var(--space-1) var(--space-2); }
+
+.history { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.history__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+}
+.history__link:hover { border-color: var(--accent); }
+.history__number { min-width: 2.5rem; font-family: var(--font-display); font-size: 1.2rem; color: var(--muted); }
+.history__main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.history__item.is-cancelled .history__main strong { text-decoration: line-through; color: var(--muted); }
+
 /* Medium-width column for forms like "new campaign" */
 .narrow { max-width: 40rem; margin-inline: auto; }
 

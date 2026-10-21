@@ -81,3 +81,145 @@ pub struct Attendee {
     pub user_id: i64,
     pub display_name: String,
 }
+
+/// One row of the campaign history.
+pub struct HistoryRow {
+    pub id: i64,
+    pub campaign_id: i64,
+    pub number: i64,
+    pub title: String,
+    pub starts_at: String,
+    pub status: SessionStatus,
+    pub attendee_count: i64,
+    pub entry_count: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct HistoryView {
+    pub session: SessionView,
+    pub attendee_count: i64,
+    pub entry_count: i64,
+}
+
+impl HistoryView {
+    pub fn new(r: HistoryRow, tz: Tz) -> HistoryView {
+        HistoryView {
+            session: SessionView {
+                id: r.id,
+                campaign_id: r.campaign_id,
+                number: r.number,
+                title: r.title,
+                when: When::from_db(&r.starts_at, tz),
+                status: r.status,
+            },
+            attendee_count: r.attendee_count,
+            entry_count: r.entry_count,
+        }
+    }
+}
+
+/// `POST /campaigns/{id}/sessions` (add a session by hand) and `POST /sessions/{id}` (edit).
+/// `status` is ignored when adding.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SessionForm {
+    #[serde(default)]
+    pub title: String,
+    pub starts_at: String,
+    pub status: Option<SessionStatus>,
+}
+
+impl SessionForm {
+    /// Returns the start time as a UTC DB string.
+    pub fn validate(&mut self, tz: Tz) -> Result<String, &'static str> {
+        self.title = self.title.trim().to_string();
+        if self.title.chars().count() > 100 {
+            return Err("The title can be at most 100 characters long.");
+        }
+        let t = crate::time::parse_local(&self.starts_at, tz)
+            .ok_or("Fill in a valid date and time.")?;
+        Ok(crate::time::to_db(t))
+    }
+}
+
+/// `POST /sessions/{id}/attendance`: the checked members (repeated `user_ids`).
+#[derive(serde::Deserialize)]
+pub struct AttendanceForm {
+    #[serde(default)]
+    pub user_ids: Vec<i64>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, sqlx::Type, serde::Serialize, serde::Deserialize)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum EntryKind {
+    Recap,
+    Notes,
+    Loot,
+    Other,
+}
+
+pub struct Entry {
+    pub id: i64,
+    pub game_session_id: i64,
+    pub kind: EntryKind,
+    pub title: String,
+    pub body_md: String,
+    pub author_id: i64,
+    pub author_name: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct EntryView {
+    pub id: i64,
+    pub kind: EntryKind,
+    pub title: String,
+    pub body_md: String,
+    pub body_html: String,
+    pub author_name: String,
+    pub created: When,
+    pub edited: bool,
+    pub can_edit: bool,
+}
+
+impl EntryView {
+    pub fn new(e: &Entry, can_edit: bool, tz: Tz) -> EntryView {
+        EntryView {
+            id: e.id,
+            kind: e.kind,
+            title: e.title.clone(),
+            body_md: e.body_md.clone(),
+            body_html: crate::markdown::render(&e.body_md),
+            author_name: e.author_name.clone(),
+            created: When::from_db(&e.created_at, tz),
+            edited: e.updated_at != e.created_at,
+            can_edit,
+        }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct EntryForm {
+    pub kind: EntryKind,
+    #[serde(default)]
+    pub title: String,
+    pub body_md: String,
+}
+
+impl EntryForm {
+    pub fn trim(&mut self) {
+        self.title = self.title.trim().to_string();
+        self.body_md = self.body_md.trim().to_string();
+    }
+
+    pub fn error(&self) -> Option<&'static str> {
+        if self.body_md.is_empty() {
+            Some("Write something first.")
+        } else if self.title.chars().count() > 100 {
+            Some("The title can be at most 100 characters long.")
+        } else {
+            None
+        }
+    }
+}

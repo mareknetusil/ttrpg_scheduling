@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user    optional: present when logged in (nav, "join as")
+     token           the invite token from the URL (form actions)
+     invite          optional { campaign_id, campaign_name, gm_name }; absent = invalid, expired
+                     or used up (the handler responds 404 with this page)
+     already_member  bool, only meaningful when logged in
+     form            optional { username, display_name }, refills the register form after an error
+                     (password fields are never refilled)
+     error           optional string, shown above the register form
+
+   Requests:
+     POST /invite/{token}            logged in: join; no fields
+     POST /login                     logged out, existing account (the default form): fields
+                                     username, password, next=/invite/{token}; needs login to
+                                     honour `next` (M4 step 10f) so the user lands back here
+     POST /invite/{token}/register   logged out, new account (second option): fields username,
+                                     display_name, password, password_confirm #}
+
+{% block title %}Invitation · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="auth">
+  <div class="card">
+    {% if not invite %}
+      <h1>Invitation not valid</h1>
+      <p>This invite link is invalid, has expired or has already been used up.</p>
+      <p class="muted">Ask your GM for a new link.</p>
+
+    {% elif current_user and already_member %}
+      <h1>{{ invite.campaign_name }}</h1>
+      <p>You're already a member of this campaign.</p>
+      <a class="button" href="/campaigns/{{ invite.campaign_id }}">Open the campaign</a>
+
+    {% elif current_user %}
+      <h1>You're invited</h1>
+      <p>
+        Join <strong>{{ invite.campaign_name }}</strong>
+        <span class="muted">(GM: {{ invite.gm_name }})</span>
+        as {{ current_user.display_name }}?
+      </p>
+      <form method="post" action="/invite/{{ token }}">
+        <button type="submit" class="button">Join campaign</button>
+      </form>
+
+    {% else %}
+      {# Logged out: most visitors already have an account, so the login form comes first.
+         The register form is the second option; it starts open after a failed registration. #}
+      {% set show_register = form or error %}
+      <div x-data="{ register: {{ 'true' if show_register else 'false' }} }">
+        <h1>You're invited</h1>
+        <p>
+          to join <strong>{{ invite.campaign_name }}</strong>
+          <span class="muted">(GM: {{ invite.gm_name }})</span>.
+        </p>
+
+        <div x-show="!register" {% if show_register %}x-cloak{% endif %}>
+          <p class="muted small">Log in, then confirm on the next page.</p>
+          <form method="post" action="/login" class="form">
+            <input type="hidden" name="next" value="/invite/{{ token }}">
+            <div class="field">
+              <label for="login-username">Username</label>
+              <input id="login-username" name="username" type="text" required
+                     autocomplete="username" autocapitalize="none" spellcheck="false"
+                     x-ref="loginUser" {% if not show_register %}autofocus{% endif %}>
+            </div>
+            <div class="field">
+              <label for="login-password">Password</label>
+              <input id="login-password" name="password" type="password" required
+                     autocomplete="current-password">
+            </div>
+            <button type="submit" class="button">Log in</button>
+          </form>
+          <p class="muted small switch">
+            New here?
+            <button type="button" class="link-button link-button--link"
+                    @click="register = true; $nextTick(() => $refs.regUser.focus())">Create an account</button>
+          </p>
+        </div>
+
+        <div x-show="register" {% if not show_register %}x-cloak{% endif %}>
+          {% if error %}
+            <p class="alert alert--error" role="alert">{{ error }}</p>
+          {% endif %}
+
+          <form method="post" action="/invite/{{ token }}/register" class="form">
+            <div class="field">
+              <label for="reg-username">Username</label>
+              <input id="reg-username" name="username" type="text" required minlength="3" maxlength="32"
+                     pattern="[A-Za-z0-9_\-]+" title="Letters, digits, - and _"
+                     autocomplete="username" autocapitalize="none" spellcheck="false"
+                     value="{{ form.username if form else "" }}" x-ref="regUser"
+                     {% if show_register %}autofocus{% endif %}>
+              <span class="muted small">For logging in. Letters, digits, - and _.</span>
+            </div>
+
+            <div class="field">
+              <label for="display_name">Display name</label>
+              <input id="display_name" name="display_name" type="text" required maxlength="50"
+                     autocomplete="nickname" value="{{ form.display_name if form else "" }}">
+              <span class="muted small">What others see.</span>
+            </div>
+
+            <div class="field">
+              <label for="password">Password</label>
+              <input id="password" name="password" type="password" required minlength="8"
+                     autocomplete="new-password">
+            </div>
+
+            <div class="field">
+              <label for="password_confirm">Repeat password</label>
+              <input id="password_confirm" name="password_confirm" type="password" required minlength="8"
+                     autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="button">Create account and join</button>
+          </form>
+          <p class="muted small switch">
+            Already have an account?
+            <button type="button" class="link-button link-button--link"
+                    @click="register = false; $nextTick(() => $refs.loginUser.focus())">Log in</button>
+          </p>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

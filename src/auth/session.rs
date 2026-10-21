@@ -1,5 +1,16 @@
 use super::token;
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use sqlx::sqlite::SqlitePool;
+
+/// The session cookie for `token`. Long-lived; the real limit is `expires_at` in the DB.
+pub fn cookie(token: String) -> Cookie<'static> {
+    Cookie::build(("session", token))
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .permanent()
+        .build()
+}
 
 pub async fn create(db: &SqlitePool, user_id: i64) -> Result<String, sqlx::Error> {
     sqlx::query!(

@@ -2,7 +2,9 @@
 
 {# Context:
      error     optional string, shown above the form (e.g. "Invalid username or password")
-     username  optional string, refills the username field after a failed attempt #}
+     username  optional string, refills the username field after a failed attempt
+     next      optional local path to go to after logging in (e.g. /invite/abc), sent back as a
+               hidden field; the handler must accept only paths starting with a single "/" #}
 
 {% block title %}Log in · TTRPG Scheduling{% endblock %}
 
@@ -16,6 +18,7 @@
     {% endif %}
 
     <form method="post" action="/login" class="form">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       <div class="field">
         <label for="username">Username</label>
         <input id="username" name="username" type="text"

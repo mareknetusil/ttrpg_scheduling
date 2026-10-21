@@ -4,10 +4,10 @@ use crate::{
     error::AppError,
 };
 use axum::{
-    extract::{Form, State},
+    extract::{Form, Query, State},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use axum_extra::extract::cookie::{Cookie, CookieJar};
 use minijinja::context;
 use std::sync::Arc;
 
@@ -15,12 +15,28 @@ use std::sync::Arc;
 pub struct LoginForm {
     username: String,
     password: String,
+    next: Option<String>,
 }
 
-pub async fn login_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppError> {
+#[derive(serde::Deserialize)]
+pub struct NextQuery {
+    next: Option<String>,
+}
+
+pub async fn login_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<NextQuery>,
+) -> Result<Html<String>, AppError> {
     let template = state.templates.get_template("login.html")?;
-    let body = template.render(context! {})?;
+    let body = template.render(context! { next => query.next })?;
     Ok(Html(body))
+}
+
+/// Only a local path is a valid redirect target; anything else (`https://…`, `//host`,
+/// `/\host`) would be an open redirect.
+fn safe_next(next: Option<String>) -> String {
+    next.filter(|n| n.starts_with('/') && !n.starts_with("//") && !n.starts_with("/\\"))
+        .unwrap_or_else(|| "/".to_string())
 }
 
 pub async fn login(
@@ -42,17 +58,12 @@ pub async fn login(
         None => None,
     };
     let Some(user_id) = valid_user_id else {
-        return login_failed(&form.username, &state);
+        return login_failed(&form.username, form.next.as_deref(), &state);
     };
 
     let token = session::create(&state.db, user_id).await?;
-    let cookie = Cookie::build(("session", token))
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .permanent()
-        .build();
-    Ok((jar.add(cookie), Redirect::to("/")).into_response())
+    let target = safe_next(form.next);
+    Ok((jar.add(session::cookie(token)), Redirect::to(&target)).into_response())
 }
 
 pub async fn logout(
@@ -68,13 +79,33 @@ pub async fn logout(
     ))
 }
 
-fn login_failed(username: &str, state: &AppState) -> Result<Response, AppError> {
+fn login_failed(
+    username: &str,
+    next: Option<&str>,
+    state: &AppState,
+) -> Result<Response, AppError> {
     let body = state
         .templates
         .get_template("login.html")?
         .render(context! {
             error => "Invalid username or password",
-            username
+            username,
+            next
         })?;
     Ok(Html(body).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_must_be_a_local_path() {
+        let next = |s: &str| safe_next(Some(s.to_string()));
+        assert_eq!(next("/invite/abc"), "/invite/abc");
+        assert_eq!(next("//evil.example"), "/");
+        assert_eq!(next("/\\evil.example"), "/");
+        assert_eq!(next("https://evil.example"), "/");
+        assert_eq!(safe_next(None), "/");
+    }
 }

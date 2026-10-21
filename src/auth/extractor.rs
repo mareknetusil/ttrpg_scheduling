@@ -1,5 +1,8 @@
 use crate::error::AppError;
-use axum::{extract::FromRequestParts, http::request::Parts};
+use axum::{
+    extract::{FromRequestParts, OptionalFromRequestParts},
+    http::request::Parts,
+};
 use axum_extra::extract::cookie::CookieJar;
 use std::sync::Arc;
 
@@ -30,5 +33,24 @@ impl FromRequestParts<Arc<crate::AppState>> for CurrentUser {
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::Unauthorized)
+    }
+}
+
+impl OptionalFromRequestParts<Arc<crate::AppState>> for CurrentUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<crate::AppState>,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        match <CurrentUser as FromRequestParts<Arc<crate::AppState>>>::from_request_parts(
+            parts, state,
+        )
+        .await
+        {
+            Ok(user) => Ok(Some(user)),
+            Err(AppError::Unauthorized) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }

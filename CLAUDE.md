@@ -27,35 +27,27 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
 
 ## How we work together (important)
 
-The owner is an experienced Python + htmx + Alpine.js developer who is **learning Rust through
-this project**. The repo has two modes of collaboration.
+The owner is an experienced Python + htmx + Alpine.js developer. The project started as a guided
+Rust learning project (the user wrote the backend, the agent taught and reviewed; see the M3/M4
+docs). **Since 2026-10-21 the agent implements the backend too**, because the owner wants the app
+finished. Keep the code simple and explicit so the owner can still read and maintain it:
 
-### Backend (`src/`, `Cargo.toml`, `migrations/`): guided / teaching mode
+### Backend (`src/`, `Cargo.toml`, `migrations/`)
 
-- **Do not write complete backend implementations unless the user explicitly asks you to**
-  (e.g. "just write it", "implement this for me"). The goal is for the user to write the Rust.
-- Default flow for a backend task:
-  1. Explain the concept(s) involved and how they map to what the user already knows from Python
-     (e.g. `Result` + `?` vs exceptions, traits vs protocols/ABCs, extractors vs FastAPI dependencies).
-  2. Propose the shape: module layout, types, function signatures, possibly a skeleton with `todo!()`.
-  3. Let the user implement. Give hints step by step, smallest useful hint first.
-  4. Review the user's code: correctness, idiomatic Rust, error handling, clippy-style feedback.
-     Explain *why*, not only *what*.
-- When the compiler complains, **explain the error message** (borrowing, lifetimes, trait bounds)
-  before suggesting a fix. Point to the relevant Rust Book / crate docs section when useful.
-- Fine to write without asking: `Cargo.toml` dependency lines, config files, small boilerplate
-  the user has already written once before, and test scaffolding the user asks for.
-- If unsure whether the user wants to write something themselves, ask.
+- Follow the existing style: feature modules (`mod.rs` router, `model.rs`, `db.rs`,
+  `handlers.rs`), `query!`/`query_as!` macros, `Result<_, AppError>` + `?` in handlers.
 - Prefer simple, explicit Rust over clever abstractions. No macros, generics or traits added just
-  for elegance; introduce them when they solve a problem the user has actually hit.
+  for elegance.
+- When explaining a change to the owner, map Rust concepts to Python where it helps.
+- If the owner says they want to write a piece themselves again, switch back to teaching mode
+  for it: explain, propose the shape, hint, review.
 
 ### Frontend (`templates/`, `static/`): vibe-code mode
 
 - Write templates, CSS and small Alpine/htmx snippets freely.
-- **Do not modify Rust code during frontend work.** The contract between backend and frontend is
-  the template context (the variables each handler passes to a template) and the routes listed
-  in `docs/DESIGN.md`. If a template needs data the handler does not provide, say so and describe
-  the needed field rather than editing the handler.
+- The contract between backend and frontend is the template context (the variables each handler
+  passes to a template, documented in a comment at the top of every template) and the routes
+  listed in `docs/DESIGN.md`. Keep both up to date when either side changes.
 - `templates/base.html` is the page shell; pages `{% extends "base.html" %}` and fill the
   `title`, `head` and `content` blocks. The nav renders user links only when `current_user` is
   in the context.

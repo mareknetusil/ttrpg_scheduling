@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.6 (2026-10-14). Progress: M0–M3 done, M4 in progress.
+Status: draft v0.7 (2026-10-21). Progress: M0–M4 done.
 
 ## 1. Goals and non-goals
 
@@ -217,7 +217,9 @@ The VPN is the outer wall, but we still need to know *who* is voting.
   may use it (`max_uses`). It expires after 14 days. Anyone holding the link can use it until then,
   so revoking it deletes it.
 - Logged-in user opens it: they join the campaign.
-- Logged-out visitor opens it: they can register a new account (or log in) and then join.
+- Logged-out visitor opens it: an invite is an invite to a *campaign*, and most visitors already
+  have an account, so the page shows a login form first (it returns to the invite via
+  `/login?next=`). Registering a new account, which also joins the campaign, is the second option.
 - So there's no open registration; every account comes from an invite or from an admin.
 
 ### 5.3 Permission matrix
@@ -247,7 +249,8 @@ Full pages unless marked *(fragment)*. Fragments are returned when the request h
 
 ```
 GET  /login, POST /login, POST /logout
-GET  /invite/{token}, POST /invite/{token}             # join or register+join
+GET  /invite/{token}, POST /invite/{token}             # show the invite; join (logged in)
+POST /invite/{token}/register                          # register + join + log in (logged out)
 
 GET  /                                                 # dashboard: my campaigns, open polls, upcoming sessions
 GET  /campaigns/new, POST /campaigns
@@ -385,7 +388,7 @@ version is worth using.
 | M1 | `AppState`, minijinja base template, static files, `tracing` request logs | `Arc`, the `State` extractor, `Result` + `map_err` + `?`, closures, `use`/paths/prelude, `Display` vs `Debug` | done |
 | M2 | SQLite pool, first migration (`users`), `AppError`, config from env, `main` returning `Result` | enums with data + exhaustive `match`, implementing traits (`Display`, `Error` + `source()`, `From`, `IntoResponse`), trait objects, `?` + `From`, `thiserror` vs `anyhow`, modules, builder pattern, `FromStr`/`parse`, `&str` params, compile-time-checked SQL | done |
 | M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | done |
-| M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | |
+| M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | done |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |

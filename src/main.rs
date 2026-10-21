@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod db;
 mod error;
+mod invites;
 
 use crate::auth::extractor::CurrentUser;
 use anyhow::Context;
@@ -78,6 +79,7 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
         )
         .route("/logout", post(auth::handlers::logout))
         .nest("/campaigns", campaigns::router())
+        .nest("/invite", invites::router())
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)

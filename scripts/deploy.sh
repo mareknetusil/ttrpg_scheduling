@@ -19,8 +19,14 @@ echo "==> building for $TARGET"
 cargo zigbuild --release --target "$TARGET"
 BIN="target/$TARGET/release/ttrpg-scheduling"
 
-echo "==> backing up the database on $PI_HOST (new migrations may run on start)"
-ssh "$PI_HOST" "sudo systemctl start ttrpg-scheduling-backup.service"
+# The backup runs the binary that is already on the Pi. On the first deploy there is none yet,
+# and no database to back up either.
+if ssh "$PI_HOST" "test -x '$APP_DIR/ttrpg-scheduling'"; then
+    echo "==> backing up the database on $PI_HOST (new migrations may run on start)"
+    ssh "$PI_HOST" "sudo systemctl start ttrpg-scheduling-backup.service"
+else
+    echo "==> first deploy: no binary on $PI_HOST yet, skipping the backup"
+fi
 
 echo "==> copying files to $PI_HOST:$APP_DIR"
 rsync -az --delete templates static "$PI_HOST:$APP_DIR/"

@@ -67,7 +67,8 @@ PI_HOST=pi@raspberrypi HEALTH_URL=http://100.x.y.z:8080/healthz scripts/deploy.s
 
 The script does five things:
 1. It builds with `cargo zigbuild --release --target aarch64-unknown-linux-musl`.
-2. It runs a backup first, because a new version may run migrations on start.
+2. It runs a backup first, because a new version may run migrations on start. On the first
+   deploy there is no binary on the Pi yet, so it skips this step.
 3. It copies `templates/` and `static/` and the binary. The binary goes under a temporary name
    that is then renamed, so a running binary is never half-written.
 4. It restarts the service. systemd sends SIGTERM, and the app finishes in-flight requests

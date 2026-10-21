@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (an admin)
+     campaigns     list of { id, name, system, gm_name, member_count, session_count, created_at } #}
+
+{% block title %}Campaigns · Admin · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<h1>Admin</h1>
+{% set admin_tab = "campaigns" %}{% include "admin/_nav.html" %}
+
+<section class="card">
+  <h2>All campaigns</h2>
+  {% if campaigns %}
+    <ul class="user-list">
+      {% for c in campaigns %}
+        <li class="user-row">
+          <div class="user-row__main">
+            <a href="/campaigns/{{ c.id }}"><strong>{{ c.name }}</strong></a>
+            <span class="muted">{{ c.system }}</span>
+            <span class="muted small user-row__meta">
+              GM: {{ c.gm_name }} · {{ c.member_count }} member{{ "" if c.member_count == 1 else "s" }}
+              · {{ c.session_count }} session{{ "" if c.session_count == 1 else "s" }} · since {{ c.created_at[:10] }}
+            </span>
+          </div>
+          <div class="user-row__actions">
+            <a class="small" href="/campaigns/{{ c.id }}/members">Members</a>
+            <a class="small link-button--danger" href="/admin/campaigns/{{ c.id }}/delete">Delete…</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No campaigns yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

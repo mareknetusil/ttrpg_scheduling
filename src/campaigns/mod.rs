@@ -22,6 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/invites/{invite_id}", delete(handlers::revoke_invite))
         .route("/{id}/members/{uid}", delete(handlers::remove_member))
         .route("/{id}/gm", post(handlers::change_gm))
+        .route("/{id}/gm/take", post(handlers::take_gm))
 }
 
 /// Loads a campaign together with the user's access to it. Non-members (who aren't admins) get

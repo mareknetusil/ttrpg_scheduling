@@ -118,7 +118,8 @@ read (cheap at this scale, and no cache invalidation to get wrong).
 
 ```
 users
-  id, username (unique), display_name, password_hash, is_admin, created_at
+  id, username (unique), display_name, password_hash, is_admin, created_at,
+  deactivated_at NULL                  -- accounts are deactivated, never deleted
 
 auth_sessions
   id (random token, primary key), user_id → users, created_at, expires_at
@@ -245,22 +246,32 @@ The VPN is the outer wall, but we still need to know *who* is voting.
 
 ### 5.3 Permission matrix
 
-| Action | Admin | GM of campaign | Member | Non-member |
+| Action | Site admin (not GM) | GM of campaign | Member | Non-member |
 |---|:-:|:-:|:-:|:-:|
-| Create campaign | ✓ | ✓ (any user) | ✓ (any user) | ✓ (any user) |
-| View campaign, history, pages | ✓ | ✓ | ✓ | – |
-| Edit campaign, pages, reassign GM | ✓ | ✓ | – | – |
-| Create invites, remove members | ✓ | ✓ | – | – |
-| Create / decide scheduling poll | ✓ | ✓ | – | – |
-| Vote in scheduling poll / poll | | ✓ | ✓ | – |
-| Edit attendance | ✓ | ✓ | – | – |
-| Add game session entries (recap...) | | ✓ | ✓ | – |
-| Edit/delete own session entry | | ✓ | ✓ | – |
-| Edit/delete any session entry | ✓ | ✓ | – | – |
-| Comment | | ✓ | ✓ | – |
-| Edit/delete own comment | | ✓ | ✓ | – |
-| Delete any comment | ✓ | ✓ | – | – |
-| Create polls | ✓ | ✓ | – | – |
+| Create campaign | ✓ | ✓ | ✓ | ✓ |
+| View campaign, members, history, pages | ✓ | ✓ | ✓ | – |
+| Edit campaign, pages, reassign GM | – | ✓ | – | – |
+| Create invites, remove members | – | ✓ | – | – |
+| Create / decide scheduling poll, regular slots | – | ✓ | – | – |
+| Vote in scheduling poll / poll | – | ✓ | ✓ | – |
+| Edit attendance, session details | – | ✓ | – | – |
+| Add game session entries (recap...) | – | ✓ | ✓ | – |
+| Edit/delete own session entry, own comment | – | ✓ | ✓ | – |
+| Delete any session entry or comment | – | ✓ | – | – |
+| Comment | – | ✓ | ✓ | – |
+| Create / close polls | – | ✓ | – | – |
+| **Take over the GM role** (joins as member, old GM stays a member) | ✓ | | | |
+| **Delete the campaign** (type its exact name to confirm) | ✓ | – | – | – |
+| **Admin tools** (`/admin`): all users and campaigns | ✓ | – | – | – |
+
+- A site admin who is also a member or the GM has those rights as well; the table shows what
+  being an admin adds. Running a campaign is the GM's alone (decided 2026-10-21): an admin who
+  needs to run one takes the GM role over.
+- Admin tools: create users, set a user's password (logs them out everywhere), make/remove
+  admins, deactivate/reactivate accounts (never yourself, so the site keeps an admin).
+  Accounts are never deleted; a deactivated user can't log in and their sessions end at once.
+- Deleting a campaign removes everything in it in one transaction (the schema has no cascades;
+  `campaigns::db::delete` lists every table). User accounts are kept.
 
 Non-members get a 404 (not 403) on campaign URLs.
 
@@ -281,6 +292,7 @@ GET  /campaigns/{id}/members                           # member list (members); 
 POST /campaigns/{id}/invites, DELETE /campaigns/{id}/invites/{invite_id}   # DELETE via htmx (revoke)
 DELETE /campaigns/{id}/members/{uid}                   # htmx: GM/admin removes a member, or a member leaves
 POST /campaigns/{id}/gm                                # reassign the GM (field user_id)
+POST /campaigns/{id}/gm/take                           # site admin takes over the GM role
 GET  /campaigns/{id}/pages/new, POST /campaigns/{id}/pages               # new page (GM/admin)
 GET  /campaigns/{id}/pages/{slug}                      # view (members)
 GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # edit (GM/admin)
@@ -315,6 +327,15 @@ POST /polls/{id}/vote                                  # htmx, repeated option_i
 POST /polls/{id}/close                                 # htmx (GM/admin); (fragment) the poll
 
 POST /markdown/preview                                 # (fragment) for the editor preview tab
+GET  /healthz                                          # "ok <version>"
+
+GET  /admin                                            # → /admin/users (site admins only, else 404)
+GET  /admin/users, POST /admin/users                   # list, create a user
+PUT  /admin/users/{id}/admin, PUT /admin/users/{id}/active   # htmx, value=1|0; (fragment) the row
+POST /admin/users/{id}/password                        # htmx; (fragment) the row
+GET  /admin/campaigns                                  # all campaigns
+GET  /admin/campaigns/{id}/delete                      # confirmation page
+DELETE /admin/campaigns/{id}?confirm_name=…            # htmx; HX-Redirect, or an error fragment
 ```
 
 Deletes and in-place updates use the real HTTP method through htmx (`hx-delete`, `hx-put`); the

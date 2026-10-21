@@ -19,6 +19,7 @@
       <nav class="site-nav" aria-label="Main">
         {% if current_user %}
           <a href="/">Campaigns</a>
+          {% if current_user.is_admin %}<a href="/admin">Admin</a>{% endif %}
           <span class="site-nav__user">{{ current_user.display_name }}</span>
           <form method="post" action="/logout">
             <button type="submit" class="link-button">Log out</button>

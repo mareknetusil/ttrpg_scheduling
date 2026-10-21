@@ -77,9 +77,14 @@ pub async fn is_member(
 pub async fn members(db: &SqlitePool, campaign_id: i64) -> Result<Vec<Member>, sqlx::Error> {
     sqlx::query_as!(
         Member,
-        "SELECT u.id AS user_id, u.username, u.display_name, m.joined_at FROM users AS u JOIN campaign_members as m ON m.user_id = u.id WHERE m.campaign_id = ? ORDER BY u.display_name",
+        r#"SELECT u.id AS user_id, u.username, u.display_name, m.joined_at,
+                  u.deactivated_at IS NOT NULL AS "deactivated: bool"
+           FROM users AS u JOIN campaign_members as m ON m.user_id = u.id
+           WHERE m.campaign_id = ? ORDER BY u.display_name"#,
         campaign_id
-    ).fetch_all(db).await
+    )
+    .fetch_all(db)
+    .await
 }
 
 pub async fn invites(db: &SqlitePool, campaign_id: i64) -> Result<Vec<Invite>, sqlx::Error> {
@@ -148,5 +153,61 @@ pub async fn set_gm(db: &SqlitePool, campaign_id: i64, user_id: i64) -> Result<(
     )
     .execute(db)
     .await?;
+    Ok(())
+}
+
+/// A site admin takes the GM role: joins the campaign if needed, then becomes its GM. The old GM
+/// stays a member. One transaction, so "the GM is a member" holds at commit.
+pub async fn take_gm(db: &SqlitePool, campaign_id: i64, user_id: i64) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "INSERT OR IGNORE INTO campaign_members (campaign_id, user_id) VALUES (?, ?)",
+        campaign_id,
+        user_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE campaigns SET gm_user_id = ? WHERE id = ?",
+        user_id,
+        campaign_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Deletes a campaign and everything in it, in one transaction. The schema has no cascades (on
+/// purpose: nothing disappears by accident), so this lists every table. Foreign keys are checked
+/// at commit (`defer_foreign_keys`), because polls and their options point at each other.
+pub async fn delete(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    sqlx::query!("PRAGMA defer_foreign_keys = ON")
+        .execute(&mut *tx)
+        .await?;
+    let statements = [
+        "DELETE FROM poll_votes WHERE poll_option_id IN
+           (SELECT o.id FROM poll_options AS o JOIN polls AS p ON p.id = o.poll_id WHERE p.campaign_id = ?)",
+        "DELETE FROM poll_options WHERE poll_id IN (SELECT id FROM polls WHERE campaign_id = ?)",
+        "DELETE FROM polls WHERE campaign_id = ?",
+        "DELETE FROM comments WHERE campaign_id = ?",
+        "DELETE FROM schedule_votes WHERE option_id IN
+           (SELECT o.id FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id WHERE p.campaign_id = ?)",
+        "DELETE FROM schedule_options WHERE poll_id IN (SELECT id FROM schedule_polls WHERE campaign_id = ?)",
+        "DELETE FROM schedule_polls WHERE campaign_id = ?",
+        "DELETE FROM schedule_patterns WHERE campaign_id = ?",
+        "DELETE FROM game_session_entries WHERE game_session_id IN (SELECT id FROM game_sessions WHERE campaign_id = ?)",
+        "DELETE FROM game_session_attendance WHERE game_session_id IN (SELECT id FROM game_sessions WHERE campaign_id = ?)",
+        "DELETE FROM game_sessions WHERE campaign_id = ?",
+        "DELETE FROM campaign_pages WHERE campaign_id = ?",
+        "DELETE FROM campaign_invites WHERE campaign_id = ?",
+        "DELETE FROM campaign_members WHERE campaign_id = ?",
+        "DELETE FROM campaigns WHERE id = ?",
+    ];
+    for sql in statements {
+        sqlx::query(sql).bind(campaign_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }

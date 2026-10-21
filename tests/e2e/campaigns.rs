@@ -117,7 +117,7 @@ async fn non_members_get_404_everywhere(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn members_view_but_only_gm_and_admin_manage(db: SqlitePool) {
+async fn members_view_but_only_the_gm_manages(db: SqlitePool) {
     let app = spawn_app(db).await;
     let gm = app.user("gina").await;
     let id = gm.create_campaign("Shared").await;
@@ -141,11 +141,10 @@ async fn members_view_but_only_gm_and_admin_manage(db: SqlitePool) {
         assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
     }
 
-    // An admin who isn't a member can still see and manage
+    // A site admin who isn't a member can look, but not run the campaign (see admin.rs)
     admin.get(&format!("/campaigns/{id}")).await.ok();
-    admin.get(&format!("/campaigns/{id}/edit")).await.ok();
-    admin
-        .get(&format!("/campaigns/{id}/schedule/new"))
-        .await
-        .ok();
+    assert_eq!(
+        admin.get(&format!("/campaigns/{id}/edit")).await.status,
+        StatusCode::NOT_FOUND
+    );
 }

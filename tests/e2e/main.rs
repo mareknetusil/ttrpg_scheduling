@@ -3,6 +3,7 @@
 
 mod common;
 
+mod admin;
 mod auth;
 mod campaigns;
 mod comments_polls;

@@ -1,0 +1,5 @@
+{# Tabs of the admin pages. Context: admin_tab = "users" | "campaigns" #}
+<nav class="admin-tabs" aria-label="Admin">
+  <a href="/admin/users" {% if admin_tab == "users" %}aria-current="page"{% endif %}>Users</a>
+  <a href="/admin/campaigns" {% if admin_tab == "campaigns" %}aria-current="page"{% endif %}>Campaigns</a>
+</nav>

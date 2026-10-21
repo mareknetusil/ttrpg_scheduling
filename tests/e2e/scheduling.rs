@@ -149,7 +149,7 @@ async fn vote_and_decide(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn outsiders_and_non_member_admins(db: SqlitePool) {
+async fn outsiders_and_site_admins(db: SqlitePool) {
     let app = spawn_app(db).await;
     let (id, gm, mark, _) = setup(&app).await;
     let poll = gm
@@ -172,7 +172,7 @@ async fn outsiders_and_non_member_admins(db: SqlitePool) {
         StatusCode::NOT_FOUND
     );
 
-    // an admin can look and cancel, but only members vote
+    // a site admin can look, but neither vote nor cancel
     let ada = app.admin("ada").await;
     assert!(
         !ada.get(&format!("/schedule/{poll}"))
@@ -195,7 +195,13 @@ async fn outsiders_and_non_member_admins(db: SqlitePool) {
             .status,
         StatusCode::NOT_FOUND
     );
-    ada.post(&format!("/schedule/{poll}/cancel"), &[])
+    assert_eq!(
+        ada.post(&format!("/schedule/{poll}/cancel"), &[])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    gm.post(&format!("/schedule/{poll}/cancel"), &[])
         .await
         .redirect();
     assert_eq!(

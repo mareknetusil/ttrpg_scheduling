@@ -51,12 +51,15 @@ pub struct Access {
 }
 
 impl Access {
+    /// Members, and site admins (who can look at any campaign).
     pub fn can_view(&self) -> bool {
         self.is_admin || self.role.is_some()
     }
 
+    /// Running the campaign (edit, invites, polls, attendance, …) is the GM's alone. A site admin
+    /// who isn't the GM can't, but can take the GM role over (`take_gm`) or delete the campaign.
     pub fn can_manage(&self) -> bool {
-        self.is_admin || matches!(self.role, Some(Role::Gm))
+        matches!(self.role, Some(Role::Gm))
     }
 }
 
@@ -66,6 +69,7 @@ pub struct Member {
     pub username: String,
     pub display_name: String,
     pub joined_at: String,
+    pub deactivated: bool,
 }
 
 #[derive(serde::Serialize)]

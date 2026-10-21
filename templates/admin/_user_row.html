@@ -1,0 +1,48 @@
+{# One user in the admin list; also the htmx fragment the row's actions answer with.
+   Context: u = { id, username, display_name, is_admin, deactivated, created_at, campaign_count },
+            me (the current admin's id), notice / error (optional strings, after an action)
+   Requests (all answer with this row):
+     PUT  /admin/users/{id}/admin      value=1|0   (not for yourself)
+     PUT  /admin/users/{id}/active     value=1|0   (not for yourself)
+     POST /admin/users/{id}/password   password #}
+<li class="user-row{% if u.deactivated %} is-deactivated{% endif %}" id="user-{{ u.id }}"
+    x-data="{ resetting: {{ 'true' if error else 'false' }} }">
+  <div class="user-row__main">
+    <strong>{{ u.display_name }}</strong>
+    <span class="muted">@{{ u.username }}</span>
+    {% if u.is_admin %}<span class="badge">Admin</span>{% endif %}
+    {% if u.deactivated %}<span class="status status--cancelled">Deactivated</span>{% endif %}
+    {% if u.id == me %}<span class="muted">(you)</span>{% endif %}
+    <span class="muted small user-row__meta">
+      {{ u.campaign_count }} campaign{{ "" if u.campaign_count == 1 else "s" }} · since {{ u.created_at[:10] }}
+    </span>
+  </div>
+  <div class="user-row__actions">
+    {% if u.id != me %}
+      {% if u.is_admin %}
+        <button type="button" class="link-button small" hx-put="/admin/users/{{ u.id }}/admin" hx-vals='{"value": "0"}'
+                hx-target="closest li" hx-swap="outerHTML" hx-confirm="Remove admin rights from {{ u.display_name }}?">Remove admin</button>
+      {% else %}
+        <button type="button" class="link-button small" hx-put="/admin/users/{{ u.id }}/admin" hx-vals='{"value": "1"}'
+                hx-target="closest li" hx-swap="outerHTML" hx-confirm="Make {{ u.display_name }} a site admin?">Make admin</button>
+      {% endif %}
+      {% if u.deactivated %}
+        <button type="button" class="link-button small" hx-put="/admin/users/{{ u.id }}/active" hx-vals='{"value": "1"}'
+                hx-target="closest li" hx-swap="outerHTML">Reactivate</button>
+      {% else %}
+        <button type="button" class="link-button link-button--danger small" hx-put="/admin/users/{{ u.id }}/active" hx-vals='{"value": "0"}'
+                hx-target="closest li" hx-swap="outerHTML"
+                hx-confirm="Deactivate {{ u.display_name }}? They're logged out and can't log in until reactivated.">Deactivate</button>
+      {% endif %}
+    {% endif %}
+    <button type="button" class="link-button small" @click="resetting = !resetting" x-text="resetting ? 'Cancel' : 'Set password'">Set password</button>
+  </div>
+  {% if notice %}<p class="alert alert--success user-row__note" role="status">{{ notice }}</p>{% endif %}
+  <form class="inline-form user-row__password" x-show="resetting" x-cloak
+        hx-post="/admin/users/{{ u.id }}/password" hx-target="closest li" hx-swap="outerHTML">
+    {% if error %}<p class="alert alert--error user-row__note" role="alert">{{ error }}</p>{% endif %}
+    <label for="password-{{ u.id }}">New password</label>
+    <input id="password-{{ u.id }}" name="password" type="password" minlength="8" required autocomplete="new-password">
+    <button type="submit" class="button button--small">Save</button>
+  </form>
+</li>

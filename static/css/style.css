@@ -620,6 +620,34 @@ input[type="datetime-local"] {
   font: inherit;
 }
 
+/* ---------- Admin ---------- */
+.admin-tabs { display: flex; gap: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--border); }
+.admin-tabs a { padding-bottom: var(--space-2); color: var(--muted); text-decoration: none; }
+.admin-tabs a[aria-current="page"] { color: var(--text); border-bottom: 2px solid var(--accent); font-weight: 600; }
+.user-list { list-style: none; margin: 0; padding: 0; }
+.user-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.user-row:last-child { border-bottom: 0; }
+.user-row__main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); flex: 1; min-width: 14rem; }
+.user-row__meta { flex-basis: 100%; }
+.user-row__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.user-row__note, .user-row__password { flex-basis: 100%; margin: 0; }
+.user-row.is-deactivated .user-row__main strong { color: var(--muted); }
+.narrow-form { max-width: 24rem; }
+.admin-note { border-color: var(--warn); background: var(--warn-soft); color: var(--text); }
+.admin-note .muted { color: var(--text); }
+.danger-zone { border-color: var(--danger); }
+.confirm-name { font-family: ui-monospace, monospace; background: var(--bg); padding: 0 var(--space-1); border-radius: 4px; }
+.button--danger { background: var(--danger); border-color: var(--danger); color: var(--accent-contrast); }
+.button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+a.link-button--danger { color: var(--danger); }
+
 /* Medium-width column for forms like "new campaign" */
 .narrow { max-width: 40rem; margin-inline: auto; }
 

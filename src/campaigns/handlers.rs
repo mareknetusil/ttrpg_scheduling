@@ -105,6 +105,7 @@ pub async fn show(
             campaign => Serde(&campaign),
             description_html => crate::markdown::render(&campaign.description_md),
             can_manage => access.can_manage(),
+            is_member => access.role.is_some(),
             pages => Serde(&pages),
             polls => Serde(&polls),
             sessions => Serde(&sessions),
@@ -213,6 +214,22 @@ pub async fn change_gm(
     Ok(Redirect::to(&format!("/campaigns/{id}/members")).into_response())
 }
 
+/// A site admin takes over the GM role (e.g. when the GM has left the group).
+pub async fn take_gm(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let (campaign, _) = load_for(&state.db, id, &user).await?;
+    if !user.is_admin {
+        return Err(AppError::NotFound);
+    }
+    if campaign.gm_user_id != user.id {
+        db::take_gm(&state.db, id, user.id).await?;
+    }
+    Ok(Redirect::to(&format!("/campaigns/{id}/members")).into_response())
+}
+
 async fn render_members(
     state: &AppState,
     user: &CurrentUser,
@@ -231,6 +248,8 @@ async fn render_members(
         current_user => Serde(user),
         campaign => Serde(campaign),
         can_manage => access.can_manage(),
+        can_take_gm => user.is_admin && campaign.gm_user_id != user.id,
+        is_member => access.role.is_some(),
         members => Serde(&members),
         invites => Serde(&invites),
         error

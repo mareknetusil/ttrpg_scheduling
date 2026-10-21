@@ -3,8 +3,10 @@
 {# Context:
      current_user  required (nav; "you" marker and the Leave button)
      campaign      { id, name, gm_user_id, ... }
-     can_manage    bool: GM or site admin (invites, remove, change GM)
-     members       list of { user_id, username, display_name, joined_at }
+     can_manage    bool: the GM (invites, remove, change GM)
+     can_take_gm   bool: a site admin who isn't the GM (take over the GM role)
+     is_member     bool: false for a site admin looking at a campaign they're not in
+     members       list of { user_id, username, display_name, joined_at, deactivated }
      invites       list of { id, token, expires_at, max_uses, use_count }: only the usable ones
                    (not expired, not used up). Needed only when can_manage.
      error         optional string, shown at the top (e.g. "Pick a member to make GM.")
@@ -16,6 +18,7 @@
                                                  the row is removed), or a member leaves
                                                  (response header HX-Redirect: /)
      POST   /campaigns/{id}/gm                   form, field user_id: the new GM; redirects back here
+     POST   /campaigns/{id}/gm/take              site admin becomes GM (and member); redirects back here
    Confirmation texts are plain HTML attributes (hx-confirm, data-confirm), never built into a
    JS string. #}
 
@@ -40,6 +43,7 @@
           <span class="muted">@{{ m.username }}</span>
           {% if m.user_id == campaign.gm_user_id %}<span class="badge">GM</span>{% endif %}
           {% if m.user_id == current_user.id %}<span class="muted">(you)</span>{% endif %}
+          {% if m.deactivated %}<span class="status status--cancelled">Deactivated</span>{% endif %}
         </span>
         <span class="muted member__since">since {{ m.joined_at[:10] }}</span>
         {% if m.user_id != campaign.gm_user_id %}
@@ -61,6 +65,18 @@
     <p class="muted small">As GM you can't leave; hand the role to another member first.</p>
   {% endif %}
 </section>
+
+{% if can_take_gm %}
+  <section class="card admin-note">
+    <h2>Site admin</h2>
+    <p class="muted">{% if not is_member %}You're not a member of this campaign; you see it because you're a site admin. {% endif %}Only the GM can run the campaign.
+      If the GM is gone, you can take the role over: you join the campaign and become its GM, and {{ campaign.gm_name }} stays a member.</p>
+    <form method="post" action="/campaigns/{{ campaign.id }}/gm/take"
+          data-confirm="Take over as GM of {{ campaign.name }} from {{ campaign.gm_name }}?" onsubmit="return confirm(this.dataset.confirm)">
+      <button type="submit" class="button button--secondary">Take over as GM</button>
+    </form>
+  </section>
+{% endif %}
 
 {% if can_manage %}
   <section class="card">

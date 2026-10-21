@@ -27,7 +27,8 @@ impl FromRequestParts<Arc<crate::AppState>> for CurrentUser {
             CurrentUser,
             r#"SELECT u.id, u.username, u.display_name, u.is_admin AS "is_admin: bool"
             FROM auth_sessions s JOIN users u ON u.id = s.user_id
-            WHERE s.id = ? AND s.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"#,
+            WHERE s.id = ? AND s.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+              AND u.deactivated_at IS NULL"#,
             token
         )
         .fetch_optional(&state.db)

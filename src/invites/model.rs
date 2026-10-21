@@ -28,24 +28,13 @@ impl RegisterForm {
     }
 
     pub fn error(&self) -> Option<&'static str> {
-        let username_len = self.username.chars().count();
-        if !(3..=32).contains(&username_len) {
-            Some("The username must be 3 to 32 characters long.")
-        } else if !self
-            .username
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        {
-            Some("The username may contain only letters, digits, - and _.")
-        } else if self.display_name.is_empty() || self.display_name.chars().count() > 50 {
-            Some("Fill in a display name (at most 50 characters).")
-        } else if self.password.chars().count() < 8 {
-            Some("The password must be at least 8 characters long.")
-        } else if self.password != self.password_confirm {
-            Some("The passwords don't match.")
-        } else {
-            None
-        }
+        use crate::auth::validate;
+        validate::username(&self.username)
+            .or_else(|| validate::display_name(&self.display_name))
+            .or_else(|| validate::password(&self.password))
+            .or_else(|| {
+                (self.password != self.password_confirm).then_some("The passwords don't match.")
+            })
     }
 }
 

@@ -4,7 +4,8 @@
      current_user  required (nav)
      campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
      description_html  the description rendered from Markdown and sanitized (safe to output)
-     can_manage    bool: GM of this campaign or site admin (shows Edit, New page)
+     can_manage    bool: the GM of this campaign (shows Edit, New page, …)
+     is_member     bool: false for a site admin looking at a campaign they're not in
      pages         list of { title, slug }: the campaign's wiki pages
      sessions      list of { id, number, title, when: When, status }: planned upcoming game sessions
      polls         list of { id, title, status, option_count, my_vote_count }: scheduling polls,
@@ -34,6 +35,12 @@
     {% endif %}
   </div>
 </section>
+
+{% if current_user.is_admin and not is_member %}
+  <p class="alert admin-note">You're not a member of this campaign; you see it as a site admin.
+    <a href="/campaigns/{{ campaign.id }}/members">Members</a> ·
+    <a href="/admin/campaigns/{{ campaign.id }}/delete">Delete…</a></p>
+{% endif %}
 
 {% if campaign.tagline %}
   <p class="tagline">{{ campaign.tagline }}</p>

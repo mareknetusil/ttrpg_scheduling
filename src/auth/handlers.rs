@@ -45,7 +45,7 @@ pub async fn login(
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
     let user = sqlx::query!(
-        "SELECT id, password_hash FROM users WHERE username = ?",
+        "SELECT id, password_hash FROM users WHERE username = ? AND deactivated_at IS NULL",
         form.username
     )
     .fetch_optional(&state.db)

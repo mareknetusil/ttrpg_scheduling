@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (an admin)
+     campaign      { id, name, system, gm_name, ... }
+     contents      { members, sessions, pages, polls, comments }: what would be deleted
+
+   Requests:
+     DELETE /admin/campaigns/{id}?confirm_name=…   htmx. The name must match exactly. A mismatch
+                                                   answers with an error paragraph (into
+                                                   #delete-result); success sends HX-Redirect. #}
+
+{% block title %}Delete {{ campaign.name }} · Admin · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb"><a href="/admin/campaigns">← All campaigns</a></p>
+  <h1>Delete campaign</h1>
+
+  <div class="card danger-zone">
+    <p>
+      This permanently deletes <strong>{{ campaign.name }}</strong> (GM: {{ campaign.gm_name }}) and everything in it:
+      {{ contents.sessions }} game session{{ "" if contents.sessions == 1 else "s" }} with their entries and attendance,
+      {{ contents.pages }} page{{ "" if contents.pages == 1 else "s" }},
+      {{ contents.polls }} poll{{ "" if contents.polls == 1 else "s" }},
+      {{ contents.comments }} comment{{ "" if contents.comments == 1 else "s" }},
+      and the membership of {{ contents.members }} member{{ "" if contents.members == 1 else "s" }}.
+      User accounts are kept.
+    </p>
+    <p><strong>This can't be undone</strong> (except by restoring a backup of the whole database).</p>
+
+    <form class="form" x-data='{ typed: "", name: {{ campaign.name|tojson }} }'
+          hx-delete="/admin/campaigns/{{ campaign.id }}" hx-target="#delete-result">
+      <div class="field">
+        <label for="confirm_name">Type the campaign's name to confirm: <strong class="confirm-name">{{ campaign.name }}</strong></label>
+        <input id="confirm_name" name="confirm_name" type="text" x-model="typed" autocomplete="off"
+               autocapitalize="none" spellcheck="false" autofocus>
+      </div>
+      <div id="delete-result"></div>
+      <div class="row">
+        <button type="submit" class="button button--danger"
+                :disabled="typed.trim() !== name" disabled>Delete this campaign</button>
+        <a href="/admin/campaigns">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

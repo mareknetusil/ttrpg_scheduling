@@ -1,6 +1,7 @@
 //! The app as a library: `main.rs` is a thin binary around it, and the end-to-end tests in
 //! `tests/` build the same router (`router()`) against a test database.
 
+mod admin;
 pub mod auth;
 mod campaigns;
 pub mod cli;
@@ -160,6 +161,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/campaigns/{id}/polls", polls::campaign_router())
         .nest("/polls", polls::router())
         .nest("/invite", invites::router())
+        .nest("/admin", admin::router())
         .route("/markdown/preview", post(markdown_preview))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new("static"))

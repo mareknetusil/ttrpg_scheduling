@@ -1,3 +1,4 @@
+{% from "_markdown.html" import markdown_field %}
 {# Shared campaign form (new + edit).
    form   optional { name, system, tagline, description_md }, the values to show
    error  optional string, shown above the fields #}
@@ -26,10 +27,7 @@
              value="{{ form.tagline if form else "" }}">
     </div>
 
-    <div class="field">
-      <label for="description_md">Description <span class="muted">(optional, Markdown)</span></label>
-      <textarea id="description_md" name="description_md" rows="8">{{ form.description_md if form else "" }}</textarea>
-    </div>
+    {{ markdown_field("description_md", "Description", form.description_md if form else "", rows=10) }}
 
     <div class="row">
       <button type="submit" class="button">{{ submit_label }}</button>

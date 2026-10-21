@@ -22,7 +22,8 @@ See `docs/DESIGN.md` for requirements, architecture, data model and the mileston
   convert structs on its own).
   Auth: `argon2` (password hashing), `rand` (session tokens), `axum-extra` (feature `cookie`,
   `CookieJar`), `serde` (`Form` structs, template values), `clap` (the `create-admin` subcommand).
-  Planned: `pulldown-cmark` + `ammonia` (Markdown), `chrono` (time).
+  Markdown: `pulldown-cmark` + `ammonia` (sanitizing), `deunicode` (page slugs).
+  Planned: `chrono` (time).
 - **Frontend:** server-rendered HTML + htmx + Alpine.js + plain CSS. No JS build step, no SPA.
 
 ## How we work together (important)
@@ -76,6 +77,13 @@ finished. Keep the code simple and explicit so the owner can still read and main
   - `handlers.rs`: `GET`/`POST /login`, `POST /logout`. The cookie is named `session`, with
     `Path=/`.
 - Pages for logged-in users pass `current_user => Serde(&user)`; `base.html` uses it for the nav.
+- `src/campaigns/`: campaign CRUD, members, invites management, GM change. `campaigns::load_for`
+  loads a campaign plus the user's `Access` (404 for non-members) and is the permission entry
+  point for every campaign-scoped feature module.
+- `src/invites/`: `GET/POST /invite/{token}` (show, join) and `/invite/{token}/register`.
+- `src/pages/`: campaign wiki pages, nested at `/campaigns/{id}/pages`.
+- `src/markdown.rs`: `render()` (Markdown → sanitized HTML) and `slugify()`.
+- `AppState::render(name, ctx)` in `main.rs` renders a full-page template.
 - `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to
   `0.0.0.0:8080`. `.env` is optional (dev only); see `.env.example`.
 - `src/db.rs`: `connect()` builds the SQLite pool (WAL, `synchronous=NORMAL`, max 4 connections)

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }
+     can_manage    bool: GM or site admin (Edit, Delete)
+     page          { id, title, slug, body_md, updated_at }
+     body_html     the page body rendered from Markdown and sanitized (safe to output)
+     pages         list of { title, slug }: all pages of the campaign (side navigation)
+
+   Requests:
+     DELETE /campaigns/{id}/pages/{slug}   htmx; the response header HX-Redirect goes to the campaign #}
+
+{% block title %}{{ page.title }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+
+<section class="page-head">
+  <div>
+    <h1>{{ page.title }}</h1>
+    <p class="muted small">Updated {{ page.updated_at[:10] }}</p>
+  </div>
+  {% if can_manage %}
+    <div class="row">
+      <a class="button" href="/campaigns/{{ campaign.id }}/pages/{{ page.slug }}/edit">Edit</a>
+      <button type="button" class="link-button link-button--danger"
+              hx-delete="/campaigns/{{ campaign.id }}/pages/{{ page.slug }}"
+              hx-confirm="Delete the page {{ page.title }}?">Delete</button>
+    </div>
+  {% endif %}
+</section>
+
+<div class="campaign-layout">
+  <article class="card campaign-layout__main">
+    {% if body_html %}
+      <div class="prose">{{ body_html|safe }}</div>
+    {% else %}
+      <p class="muted">This page is empty.</p>
+    {% endif %}
+  </article>
+
+  <aside class="campaign-layout__side">
+    <nav class="card" aria-label="Campaign pages">
+      <h2>Pages</h2>
+      <ul class="link-list">
+        {% for p in pages %}
+          <li>
+            {% if p.slug == page.slug %}
+              <strong aria-current="page">{{ p.title }}</strong>
+            {% else %}
+              <a href="/campaigns/{{ campaign.id }}/pages/{{ p.slug }}">{{ p.title }}</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+  </aside>
+</div>
+{% endblock %}

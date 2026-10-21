@@ -1,0 +1,24 @@
+{# Markdown editor: a textarea with Write / Preview tabs.
+   Preview posts the textarea (hx-include) to POST /markdown/preview and shows the returned,
+   already sanitized HTML. `id` must be unique on the page; `name` is the form field. #}
+{% macro markdown_field(name, label, value="", id=none, rows=8, required=false, optional=true) %}
+  {% set field_id = id or name %}
+  <div class="field md-editor" x-data="{ tab: 'write' }">
+    <div class="md-editor__head">
+      <label for="{{ field_id }}">{{ label }}{% if optional %} <span class="muted">(optional)</span>{% endif %}</label>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" class="tabs__tab" :aria-selected="tab == 'write'"
+                @click="tab = 'write'; $nextTick(() => $refs.input.focus())">Write</button>
+        <button type="button" role="tab" class="tabs__tab" :aria-selected="tab == 'preview'"
+                hx-post="/markdown/preview" hx-include="#{{ field_id }}"
+                hx-target="#{{ field_id }}-preview" hx-swap="innerHTML"
+                @click="tab = 'preview'">Preview</button>
+      </div>
+    </div>
+    <textarea id="{{ field_id }}" name="{{ name }}" rows="{{ rows }}" x-ref="input"
+              x-show="tab == 'write'" {% if required %}required{% endif %}>{{ value }}</textarea>
+    <div id="{{ field_id }}-preview" class="prose md-editor__preview" x-show="tab == 'preview'" x-cloak
+         aria-live="polite"></div>
+    <span class="muted small">Markdown: **bold**, _italic_, # heading, - list, [link](https://…), tables.</span>
+  </div>
+{% endmacro %}

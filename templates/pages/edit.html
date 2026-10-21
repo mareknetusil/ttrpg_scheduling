@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_markdown.html" import markdown_field %}
+
+{# New page and edit page.
+   Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }
+     page          optional { id, title, slug, ... }: present when editing, absent for a new page
+     form          optional { title, body_md }: the values to show
+     error         optional string
+
+   Requests:
+     POST /campaigns/{id}/pages          new page: fields title, body_md
+     POST /campaigns/{id}/pages/{slug}   save: fields title, body_md
+   The slug is made from the first title and stays the same when the title changes. #}
+
+{% block title %}{% if page %}Edit {{ page.title }}{% else %}New page{% endif %} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+  <h1>{% if page %}Edit page{% else %}New page{% endif %}</h1>
+
+  <div class="card">
+    {% if error %}
+      <p class="alert alert--error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" class="form"
+          action="/campaigns/{{ campaign.id }}/pages{% if page %}/{{ page.slug }}{% endif %}">
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required maxlength="100"
+               value="{{ form.title if form else "" }}" {% if not page %}autofocus{% endif %}>
+      </div>
+
+      {{ markdown_field("body_md", "Content", form.body_md if form else "", rows=16) }}
+
+      <div class="row">
+        <button type="submit" class="button">{% if page %}Save{% else %}Create page{% endif %}</button>
+        <a href="{% if page %}/campaigns/{{ campaign.id }}/pages/{{ page.slug }}{% else %}/campaigns/{{ campaign.id }}{% endif %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

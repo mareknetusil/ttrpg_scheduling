@@ -5,6 +5,8 @@ mod config;
 mod db;
 mod error;
 mod invites;
+mod markdown;
+mod pages;
 
 use crate::auth::extractor::CurrentUser;
 use anyhow::Context;
@@ -26,6 +28,13 @@ struct AppState {
     db: SqlitePool,
 }
 
+impl AppState {
+    /// Renders a full-page template.
+    fn render(&self, name: &str, ctx: minijinja::Value) -> Result<Html<String>, error::AppError> {
+        Ok(Html(self.templates.get_template(name)?.render(ctx)?))
+    }
+}
+
 async fn fallback_error_handler() -> error::AppError {
     error::AppError::NotFound
 }
@@ -42,6 +51,19 @@ async fn index(
         campaigns => minijinja::value::Serde(&campaigns)
     })?;
     Ok(Html(body))
+}
+
+/// `POST /markdown/preview`: the editor's Preview tab. The form has one field (the textarea,
+/// whatever its name), sent by `hx-include`.
+async fn markdown_preview(
+    _user: CurrentUser,
+    axum::extract::Form(fields): axum::extract::Form<std::collections::HashMap<String, String>>,
+) -> Html<String> {
+    let source = fields.into_values().next().unwrap_or_default();
+    if source.trim().is_empty() {
+        return Html("<p class=\"muted\">Nothing to preview.</p>".to_string());
+    }
+    Html(markdown::render(&source))
 }
 
 #[tokio::main]
@@ -79,7 +101,9 @@ async fn serve(config: config::Config, db: SqlitePool) -> anyhow::Result<()> {
         )
         .route("/logout", post(auth::handlers::logout))
         .nest("/campaigns", campaigns::router())
+        .nest("/campaigns/{id}/pages", pages::router())
         .nest("/invite", invites::router())
+        .route("/markdown/preview", post(markdown_preview))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(Arc::new(state))
         .fallback(fallback_error_handler)

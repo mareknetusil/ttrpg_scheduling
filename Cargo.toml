@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ammonia = "4.2.4"
 anyhow = "1.0.104"
 argon2 = "0.6.0"
 axum = { version = "0.8.9", features = ["macros"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
 clap = { version = "4.6.7", features = ["derive"] }
+deunicode = "1.6.2"
 dotenvy = "0.15.7"
 minijinja = { version = "3.0.0", features = ["serde"] }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 rand = "0.10"
 serde = { version = "1.0.229", features = ["derive"] }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite"] }

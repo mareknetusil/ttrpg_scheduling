@@ -275,8 +275,75 @@ a.button { text-decoration: none; }
   font-style: italic;
 }
 .card h2 { margin-top: 0; font-size: 1.1rem; }
-/* Unrendered Markdown: keep the author's line breaks, wrap long lines */
-.prose-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Main column + side column (campaign overview, wiki pages); stacks on narrow screens */
+.campaign-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 var(--space-4);
+  align-items: start;
+}
+@media (min-width: 48rem) {
+  .campaign-layout { grid-template-columns: minmax(0, 1fr) 16rem; }
+}
+.link-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+.link-list li { padding-block: var(--space-1); }
+
+/* ---------- Rendered Markdown ---------- */
+.prose { overflow-wrap: anywhere; }
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose h1, .prose h2, .prose h3, .prose h4 { margin: var(--space-4) 0 var(--space-2); }
+.prose h1 { font-size: 1.5rem; }
+.prose h2 { font-size: 1.25rem; }
+.prose h3 { font-size: 1.1rem; }
+.prose p, .prose ul, .prose ol, .prose blockquote, .prose pre, .prose table { margin: 0 0 var(--space-3); }
+.prose ul, .prose ol { padding-left: 1.5rem; }
+.prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.25rem; }
+.prose blockquote {
+  padding: var(--space-1) var(--space-3);
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.prose code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 0.9em;
+}
+.prose pre { padding: var(--space-3); border-radius: var(--radius); background: var(--bg); overflow-x: auto; }
+.prose pre code { padding: 0; background: none; }
+.prose table { border-collapse: collapse; display: block; overflow-x: auto; }
+.prose th, .prose td { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); text-align: left; }
+.prose img { max-width: 100%; height: auto; }
+.prose hr { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 0; }
+
+/* ---------- Markdown editor (Write / Preview tabs) ---------- */
+.md-editor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.tabs { display: flex; gap: var(--space-1); }
+.tabs__tab {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.tabs__tab[aria-selected="true"] { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.md-editor__preview {
+  min-height: 6rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
 
 /* ---------- Members page ---------- */
 .member-list, .invite-list { list-style: none; margin: 0; padding: 0; }

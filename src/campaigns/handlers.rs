@@ -1,6 +1,6 @@
 use super::{
-    db,
-    model::{Access, Campaign, CampaignForm, GmForm, InviteForm, Role},
+    db, load_for,
+    model::{Access, Campaign, CampaignForm, GmForm, InviteForm},
 };
 use crate::{AppState, auth::extractor::CurrentUser, error::AppError};
 use axum::{
@@ -9,7 +9,6 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use minijinja::{context, value::Serde};
-use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
 
 pub async fn new_form(
@@ -90,13 +89,17 @@ pub async fn show(
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
-    let template = state.templates.get_template("campaigns/show.html")?;
-    let body = template.render(context! {
-        current_user => Serde(&user),
-        campaign => Serde(&campaign),
-        can_manage => access.can_manage()
-    })?;
-    Ok(Html(body))
+    let pages = crate::pages::db::list(&state.db, id).await?;
+    state.render(
+        "campaigns/show.html",
+        context! {
+            current_user => Serde(&user),
+            campaign => Serde(&campaign),
+            description_html => crate::markdown::render(&campaign.description_md),
+            can_manage => access.can_manage(),
+            pages => Serde(&pages),
+        },
+    )
 }
 
 pub async fn members_page(
@@ -195,29 +198,6 @@ pub async fn change_gm(
     }
     db::set_gm(&state.db, id, form.user_id).await?;
     Ok(Redirect::to(&format!("/campaigns/{id}/members")).into_response())
-}
-
-async fn load_for(
-    db: &SqlitePool,
-    campaign_id: i64,
-    user: &CurrentUser,
-) -> Result<(Campaign, Access), AppError> {
-    let campaign = db::get(db, campaign_id).await?.ok_or(AppError::NotFound)?;
-    let role = if campaign.gm_user_id == user.id {
-        Some(Role::Gm)
-    } else if db::is_member(db, campaign_id, user.id).await? {
-        Some(Role::Member)
-    } else {
-        None
-    };
-    let access = Access {
-        role,
-        is_admin: user.is_admin,
-    };
-    if !access.can_view() {
-        return Err(AppError::NotFound);
-    }
-    Ok((campaign, access))
 }
 
 async fn render_members(

@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M4 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M5 done.
 
 ## 1. Goals and non-goals
 
@@ -59,7 +59,7 @@ Status: draft v0.7 (2026-10-21). Progress: M0–M4 done.
 | HTTP | `axum` | Most common Rust web framework; extractor model resembles FastAPI dependencies. |
 | Runtime | `tokio` | Required by axum. |
 | DB | `sqlx` (SQLite) | Plain SQL (no ORM to learn), compile-time-checked queries, built-in migrations. SQLite is compiled in (bundled), so it's the only C code to cross-compile. |
-| Templates | `minijinja` | Jinja2 syntax you already know. Templates live outside Rust, so frontend agents never touch `.rs` files. Supports rendering single blocks (`eval_to_state(..)?.render_block(..)`, for htmx). Alternative: `askama` (compile-time checked, but each template needs a Rust struct, which couples frontend and backend work). |
+| Templates | `minijinja` | Jinja2 syntax you already know. Templates live outside Rust, so frontend agents never touch `.rs` files. Supports rendering single blocks (in v3: `render_captured(ctx)?.with_state_mut(|s| s.render_block(..))`, for htmx; wrapped as `AppState::render_block`). Alternative: `askama` (compile-time checked, but each template needs a Rust struct, which couples frontend and backend work). |
 | Markdown | `pulldown-cmark` + `ammonia` | Render CommonMark (+ tables, strikethrough, task lists), then sanitize the HTML. |
 | Passwords | `argon2` | Current standard password hash. |
 | Time | `chrono` + `chrono-tz` | Well supported by sqlx. |
@@ -260,7 +260,10 @@ GET  /campaigns/{id}/members                           # member list (members); 
 POST /campaigns/{id}/invites, DELETE /campaigns/{id}/invites/{invite_id}   # DELETE via htmx (revoke)
 DELETE /campaigns/{id}/members/{uid}                   # htmx: GM/admin removes a member, or a member leaves
 POST /campaigns/{id}/gm                                # reassign the GM (field user_id)
-GET  /campaigns/{id}/pages/{slug}, (new|edit|save) …
+GET  /campaigns/{id}/pages/new, POST /campaigns/{id}/pages               # new page (GM/admin)
+GET  /campaigns/{id}/pages/{slug}                      # view (members)
+GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # edit (GM/admin)
+DELETE /campaigns/{id}/pages/{slug}                    # htmx, HX-Redirect to the campaign
 GET  /campaigns/{id}/history                           # list of game sessions
 
 GET  /campaigns/{id}/schedule/new                      # manual or from pattern
@@ -299,7 +302,13 @@ the display time zone, together with an ISO string for `<time datetime="…">`.
   highlighting later). Raw HTML in Markdown is therefore stripped of scripts, event handlers, etc.
 - Exposed in templates only as pre-rendered `*_html` fields; there's no Markdown filter in templates,
   so raw user input can't accidentally be marked safe.
-- Editor: a `<textarea>` with Write/Preview tabs (Alpine + `hx-post="/markdown/preview"`).
+- Editor: a `<textarea>` with Write/Preview tabs (Alpine + `hx-post="/markdown/preview"`), the
+  `markdown_field` macro in `templates/_markdown.html`. The preview endpoint renders whichever
+  single form field it receives (`hx-include` of the textarea).
+- Task-list checkboxes survive sanitizing: `<input>` is allowed with only `type="checkbox"`,
+  `checked` and a forced `disabled`.
+- Page slugs come from the title (accents transliterated with `deunicode`), are unique per
+  campaign (`-2`, `-3`, …; "new" is reserved for the route) and never change after creation.
 
 ## 8. Deployment (Raspberry Pi 3B+)
 
@@ -389,7 +398,7 @@ version is worth using.
 | M2 | SQLite pool, first migration (`users`), `AppError`, config from env, `main` returning `Result` | enums with data + exhaustive `match`, implementing traits (`Display`, `Error` + `source()`, `From`, `IntoResponse`), trait objects, `?` + `From`, `thiserror` vs `anyhow`, modules, builder pattern, `FromStr`/`parse`, `&str` params, compile-time-checked SQL | done |
 | M3 | Users, login/logout, `CurrentUser` extractor, `create-admin` CLI | implementing a library trait (`FromRequestParts`, associated types), ownership (moves, partial moves, borrows, `String` vs `&str`), `spawn_blocking` + `move` closures, `Option` (`ok_or`, `then_some`, `if let`, `let ... else`), one return type per fn (`Response`), `query_as!`, cookies, argon2, clap derive, unit tests + `#[sqlx::test]` | done |
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | done |
-| M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | |
+| M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | done |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | |
 | M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |

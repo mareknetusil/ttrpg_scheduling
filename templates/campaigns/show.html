@@ -3,8 +3,9 @@
 {# Context:
      current_user  required (nav)
      campaign      { id, name, system, tagline, description_md, gm_user_id, gm_name }
-     can_manage    bool: GM of this campaign or site admin (shows Edit)
-   description_md is shown as plain escaped text until Markdown rendering arrives in M5. #}
+     description_html  the description rendered from Markdown and sanitized (safe to output)
+     can_manage    bool: GM of this campaign or site admin (shows Edit, New page)
+     pages         list of { title, slug }: the campaign's wiki pages #}
 
 {% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -31,12 +32,32 @@
   <p class="tagline">{{ campaign.tagline }}</p>
 {% endif %}
 
-<section class="card">
-  <h2>About</h2>
-  {% if campaign.description_md %}
-    <div class="prose-plain">{{ campaign.description_md }}</div>
-  {% else %}
-    <p class="muted">No description yet.</p>
-  {% endif %}
-</section>
+<div class="campaign-layout">
+  <section class="card campaign-layout__main">
+    <h2>About</h2>
+    {% if description_html %}
+      <div class="prose">{{ description_html|safe }}</div>
+    {% else %}
+      <p class="muted">No description yet.</p>
+    {% endif %}
+  </section>
+
+  <aside class="campaign-layout__side">
+    <section class="card">
+      <h2>Pages</h2>
+      {% if pages %}
+        <ul class="link-list">
+          {% for p in pages %}
+            <li><a href="/campaigns/{{ campaign.id }}/pages/{{ p.slug }}">{{ p.title }}</a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted small">No pages yet.</p>
+      {% endif %}
+      {% if can_manage %}
+        <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/pages/new">New page</a>
+      {% endif %}
+    </section>
+  </aside>
+</div>
 {% endblock %}

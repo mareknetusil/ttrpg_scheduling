@@ -4,11 +4,12 @@
 pub mod db;
 mod handlers;
 pub mod model;
+pub mod pattern;
 
 use crate::AppState;
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use std::sync::Arc;
 
@@ -17,6 +18,11 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(handlers::create))
         .route("/new", get(handlers::new_form))
+        .route(
+            "/patterns",
+            get(handlers::patterns_page).post(handlers::create_pattern),
+        )
+        .route("/patterns/{pattern_id}", delete(handlers::delete_pattern))
 }
 
 /// Nested at `/schedule`.

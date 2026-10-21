@@ -1,6 +1,9 @@
 use super::{
     db,
-    model::{Answer, DecideForm, NewPollForm, Poll, PollStatus, PollView, VoteForm},
+    model::{
+        Answer, DecideForm, GenerateQuery, NewPollForm, PatternForm, PatternView, Poll, PollStatus,
+        PollView, VoteForm,
+    },
 };
 use crate::{
     AppState,
@@ -14,24 +17,56 @@ use crate::{
     time::When,
 };
 use axum::{
-    extract::{Form, Path, State},
+    extract::{Form, Path, Query, State},
+    http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
 };
 use minijinja::{Value, context, value::Serde};
 use std::{collections::HashMap, sync::Arc};
 
+/// The new-poll form. With `?pattern_id=…&weeks=…` the dates are filled from that regular slot.
 pub async fn new_form(
     State(state): State<Arc<AppState>>,
     user: CurrentUser,
     Path(id): Path<i64>,
+    Query(query): Query<GenerateQuery>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     if !access.can_manage() {
         return Err(AppError::NotFound);
     }
+    let weeks = query.weeks.unwrap_or(3).clamp(1, 8);
+    let mut options = Vec::new();
+    if let Some(pattern_id) = query.pattern_id {
+        let row = db::pattern(&state.db, id, pattern_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if let Some(pattern) = row.pattern() {
+            options = pattern
+                .generate(chrono::Utc::now(), weeks, state.tz)
+                .into_iter()
+                .map(|t| When::new(t, state.tz).input)
+                .collect();
+        }
+    }
+    let number = db::next_session_number(&state.db, id).await?;
+    let form = NewPollForm {
+        title: format!("Session {number}"),
+        description_md: String::new(),
+        deadline: String::new(),
+        options,
+    };
+    let patterns = pattern_views(&state, id).await?;
     state.render(
         "schedule/new.html",
-        context! { current_user => Serde(&user), campaign => Serde(&campaign) },
+        context! {
+            current_user => Serde(&user),
+            campaign => Serde(&campaign),
+            form => Serde(&form),
+            patterns => Serde(&patterns),
+            selected_pattern => query.pattern_id,
+            weeks,
+        },
     )
 }
 
@@ -49,6 +84,7 @@ pub async fn create(
     let poll = match form.validate(state.tz) {
         Ok(poll) => poll,
         Err(error) => {
+            let patterns = pattern_views(&state, id).await?;
             return Ok(state
                 .render(
                     "schedule/new.html",
@@ -56,6 +92,8 @@ pub async fn create(
                         current_user => Serde(&user),
                         campaign => Serde(&campaign),
                         form => Serde(&form),
+                        patterns => Serde(&patterns),
+                        weeks => 3,
                         error
                     },
                 )?
@@ -124,6 +162,88 @@ pub async fn cancel(
     }
     db::cancel(&state.db, poll_id).await?;
     Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
+}
+
+pub async fn patterns_page(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Html<String>, AppError> {
+    let (campaign, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    render_patterns(&state, &user, &campaign, None, None).await
+}
+
+pub async fn create_pattern(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+    axum_extra::extract::Form(form): axum_extra::extract::Form<PatternForm>,
+) -> Result<Response, AppError> {
+    let (campaign, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    let today = chrono::Utc::now().with_timezone(&state.tz).date_naive();
+    match form.validate(today) {
+        Ok(pattern) => {
+            db::create_pattern(&state.db, id, user.id, &pattern).await?;
+            Ok(Redirect::to(&format!("/campaigns/{id}/schedule/patterns")).into_response())
+        }
+        Err(error) => Ok(
+            render_patterns(&state, &user, &campaign, Some(&form), Some(error))
+                .await?
+                .into_response(),
+        ),
+    }
+}
+
+/// `DELETE` via htmx; an empty 200 lets `hx-swap="delete"` remove the row.
+pub async fn delete_pattern(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path((id, pattern_id)): Path<(i64, i64)>,
+) -> Result<Response, AppError> {
+    let (_, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    if db::delete_pattern(&state.db, id, pattern_id).await? == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(StatusCode::OK.into_response())
+}
+
+async fn pattern_views(state: &AppState, campaign_id: i64) -> Result<Vec<PatternView>, AppError> {
+    Ok(db::patterns(&state.db, campaign_id)
+        .await?
+        .iter()
+        .filter_map(PatternView::new)
+        .collect())
+}
+
+async fn render_patterns(
+    state: &AppState,
+    user: &CurrentUser,
+    campaign: &Campaign,
+    form: Option<&PatternForm>,
+    error: Option<&str>,
+) -> Result<Html<String>, AppError> {
+    let patterns = pattern_views(state, campaign.id).await?;
+    let today = chrono::Utc::now().with_timezone(&state.tz).date_naive();
+    state.render(
+        "schedule/patterns.html",
+        context! {
+            current_user => Serde(user),
+            campaign => Serde(campaign),
+            patterns => Serde(&patterns),
+            form => Serde(&form),
+            today => today.format("%Y-%m-%d").to_string(),
+            error,
+        },
+    )
 }
 
 /// Loads a poll and checks the user may see its campaign.

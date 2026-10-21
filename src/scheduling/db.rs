@@ -1,4 +1,6 @@
-use super::model::{Answer, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow};
+use super::model::{
+    Answer, NewPattern, NewPoll, OptionRow, PatternRow, Poll, PollStatus, PollSummary, VoteRow,
+};
 use sqlx::sqlite::SqlitePool;
 
 pub async fn create(
@@ -196,4 +198,77 @@ pub async fn open_for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<PollSumm
     )
     .fetch_all(db)
     .await
+}
+
+/// The number the next game session of the campaign will get (for the default poll title).
+pub async fn next_session_number(db: &SqlitePool, campaign_id: i64) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT COALESCE(MAX(number), 0) + 1 AS "n!: i64" FROM game_sessions WHERE campaign_id = ?"#,
+        campaign_id
+    )
+    .fetch_one(db)
+    .await
+}
+
+pub async fn patterns(db: &SqlitePool, campaign_id: i64) -> Result<Vec<PatternRow>, sqlx::Error> {
+    sqlx::query_as!(
+        PatternRow,
+        "SELECT id, weekdays, start_time, every_n_weeks, anchor_date FROM schedule_patterns
+         WHERE campaign_id = ? ORDER BY created_at",
+        campaign_id
+    )
+    .fetch_all(db)
+    .await
+}
+
+pub async fn pattern(
+    db: &SqlitePool,
+    campaign_id: i64,
+    pattern_id: i64,
+) -> Result<Option<PatternRow>, sqlx::Error> {
+    sqlx::query_as!(
+        PatternRow,
+        "SELECT id, weekdays, start_time, every_n_weeks, anchor_date FROM schedule_patterns
+         WHERE campaign_id = ? AND id = ?",
+        campaign_id,
+        pattern_id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn create_pattern(
+    db: &SqlitePool,
+    campaign_id: i64,
+    user_id: i64,
+    p: &NewPattern,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO schedule_patterns (campaign_id, weekdays, start_time, every_n_weeks, anchor_date, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        campaign_id,
+        p.weekdays,
+        p.start_time,
+        p.every_n_weeks,
+        p.anchor_date,
+        user_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_pattern(
+    db: &SqlitePool,
+    campaign_id: i64,
+    pattern_id: i64,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "DELETE FROM schedule_patterns WHERE campaign_id = ? AND id = ?",
+        campaign_id,
+        pattern_id
+    )
+    .execute(db)
+    .await?;
+    Ok(result.rows_affected())
 }

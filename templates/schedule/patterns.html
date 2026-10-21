@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav)
+     campaign      { id, name, ... }
+     patterns      list of { id, description }  e.g. "Fri, Sat at 18:00, every week"
+     form          optional { weekdays: [0-6], start_time, every_n_weeks, first_week }: refill after an error
+     today         "YYYY-MM-DD" in the display time zone (default for first_week)
+     error         optional string
+
+   Requests:
+     POST   /campaigns/{id}/schedule/patterns                fields weekdays (repeated 0 = Monday
+                                                             … 6 = Sunday), start_time "HH:MM",
+                                                             every_n_weeks 1-4, first_week "YYYY-MM-DD"
+     DELETE /campaigns/{id}/schedule/patterns/{pattern_id}   htmx; empty 200, the row is removed #}
+
+{% block title %}Regular slots · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+
+{% block content %}
+<section class="narrow">
+  <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+  <h1>Regular slots</h1>
+  <p class="muted">When does the group usually play? A new scheduling poll can fill its dates from a slot.</p>
+
+  <section class="card">
+    {% if patterns %}
+      <ul class="member-list">
+        {% for p in patterns %}
+          <li class="member">
+            <span class="member__name">{{ p.description }}</span>
+            <a class="button button--secondary button--small"
+               href="/campaigns/{{ campaign.id }}/schedule/new?pattern_id={{ p.id }}">New poll from this</a>
+            <button type="button" class="link-button link-button--danger"
+                    hx-delete="/campaigns/{{ campaign.id }}/schedule/patterns/{{ p.id }}"
+                    hx-target="closest li" hx-swap="delete"
+                    hx-confirm="Remove this regular slot?">Remove</button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No regular slots yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Add a slot</h2>
+    {% if error %}
+      <p class="alert alert--error" role="alert">{{ error }}</p>
+    {% endif %}
+    {% set chosen = form.weekdays if form else [] %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/schedule/patterns" class="form">
+      <fieldset class="field weekday-picker">
+        <legend>Days</legend>
+        <div class="weekday-picker__days">
+          {% for name in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+            <label class="weekday">
+              <input type="checkbox" name="weekdays" value="{{ loop.index0 }}"
+                     {% if loop.index0 in chosen %}checked{% endif %}>
+              <span>{{ name }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="inline-form">
+        <label for="start_time">At</label>
+        <input id="start_time" name="start_time" type="time" required
+               value="{{ form.start_time if form else "18:00" }}">
+        <label for="every_n_weeks">every</label>
+        <select id="every_n_weeks" name="every_n_weeks">
+          {% for n in [1, 2, 3, 4] %}
+            <option value="{{ n }}" {% if form and form.every_n_weeks == n %}selected{% endif %}>
+              {% if n == 1 %}week{% else %}{{ n }} weeks{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="first_week">First week with a session</label>
+        <input id="first_week" name="first_week" type="date"
+               value="{{ form.first_week if form and form.first_week else today }}">
+        <span class="muted small">Only matters for "every 2+ weeks": any day of that week works.</span>
+      </div>
+
+      <div class="row">
+        <button type="submit" class="button">Add slot</button>
+      </div>
+    </form>
+  </section>
+</section>
+{% endblock %}

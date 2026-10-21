@@ -89,7 +89,10 @@
         </details>
       {% endif %}
       {% if can_manage %}
-        <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/schedule/new">New poll</a>
+        <div class="row row--tight">
+          <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/schedule/new">New poll</a>
+          <a class="small" href="/campaigns/{{ campaign.id }}/schedule/patterns">Regular slots</a>
+        </div>
       {% endif %}
     </section>
 

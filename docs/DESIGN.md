@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: draft v0.7 (2026-10-21). Progress: M0–M6 done.
+Status: draft v0.7 (2026-10-21). Progress: M0–M7 done.
 
 ## 1. Goals and non-goals
 
@@ -134,9 +134,9 @@ campaign_pages                         -- R6, wiki-lite
   id, campaign_id, title, slug, body_md, sort_order, created_by, updated_at
   UNIQUE (campaign_id, slug)
 
-schedule_patterns                      -- R2, "regular" scheduling
-  id, campaign_id, weekdays (bitmask or "MO,FR"), start_time (local), duration_minutes,
-  every_n_weeks, active
+schedule_patterns                      -- R2, "regular" scheduling (a campaign's regular slots)
+  id, campaign_id, weekdays (bitmask, bit 0 = Monday), start_time ('HH:MM', local),
+  every_n_weeks (1-4), anchor_date (Monday of a week with sessions), created_by, created_at
 
 schedule_polls                         -- R2
   id, campaign_id, title, description_md, status ('open' | 'decided' | 'cancelled'),
@@ -184,7 +184,10 @@ poll_votes
 - `schedule_patterns` don't create anything by themselves. They're a **generator for candidate
   dates**: "new scheduling poll from pattern, next 3 weeks" produces e.g. 3 Fridays + 3 Saturdays
   as `schedule_options`, which the GM can then edit. This keeps the "regular" and "manual" flows
-  the same after creation.
+  the same after creation. In the UI they're called "regular slots"; generation happens in Rust
+  (`scheduling::pattern`), skipping past times and local times that don't exist (DST gap).
+  `duration_minutes` and `active` were dropped: nothing uses a duration yet, and a slot that's no
+  longer used is simply deleted.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
   pre-fill attendance with the "yes" voters, set `status = 'decided'`.
 - Enums are stored as `TEXT` with a `CHECK` constraint and mapped to Rust enums via `sqlx::Type`
@@ -272,8 +275,10 @@ GET  /campaigns/{id}/pages/{slug}/edit, POST /campaigns/{id}/pages/{slug}   # ed
 DELETE /campaigns/{id}/pages/{slug}                    # htmx, HX-Redirect to the campaign
 GET  /campaigns/{id}/history                           # list of game sessions
 
-GET  /campaigns/{id}/schedule/new                      # manual or from pattern
+GET  /campaigns/{id}/schedule/new                      # ?pattern_id=&weeks= fills dates from a slot
 POST /campaigns/{id}/schedule
+GET  /campaigns/{id}/schedule/patterns, POST …/patterns              # regular slots (GM/admin)
+DELETE /campaigns/{id}/schedule/patterns/{pattern_id}                # htmx
 GET  /schedule/{poll_id}                               # voting grid
 PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session
@@ -407,7 +412,7 @@ version is worth using.
 | M4 | Campaign CRUD, members, invites, permission checks | `sqlx::query_as!`, `sqlx::Type` enums, `match`, forms with `Form<T>` + `Deserialize` | done |
 | M5 | Markdown rendering + campaign pages | `&str` vs `String`, ownership through function boundaries | done |
 | M6 | Scheduling polls: manual options, voting grid (htmx), decide → game session | transactions, `chrono`, `HashMap`/grouping, iterators | done |
-| M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | |
+| M7 | Regular patterns → generated candidate dates | iterators, `chrono` date arithmetic, unit tests | done |
 | M8 | Game session history, attendance, entries | putting it together; refactoring shared code | |
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | |
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | |

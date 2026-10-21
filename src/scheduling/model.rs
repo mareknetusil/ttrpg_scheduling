@@ -1,4 +1,6 @@
+use super::pattern::{Pattern, monday_of};
 use crate::time::{self, When};
+use chrono::{NaiveDate, NaiveTime};
 use chrono_tz::Tz;
 
 /// A vote. Stored as `TEXT` ('yes' | 'maybe' | 'no'), see the `CHECK` in the migration.
@@ -143,6 +145,100 @@ impl NewPollForm {
             options,
         })
     }
+}
+
+pub struct PatternRow {
+    pub id: i64,
+    pub weekdays: i64,
+    pub start_time: String,
+    pub every_n_weeks: i64,
+    pub anchor_date: String,
+}
+
+impl PatternRow {
+    /// `None` only if the row is malformed, which the CHECKs and `PatternForm` prevent.
+    pub fn pattern(&self) -> Option<Pattern> {
+        Some(Pattern {
+            weekdays: u8::try_from(self.weekdays).ok()?,
+            start_time: NaiveTime::parse_from_str(&self.start_time, "%H:%M").ok()?,
+            every_n_weeks: u32::try_from(self.every_n_weeks).ok()?,
+            anchor: NaiveDate::parse_from_str(&self.anchor_date, "%Y-%m-%d").ok()?,
+        })
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct PatternView {
+    pub id: i64,
+    pub description: String,
+}
+
+impl PatternView {
+    pub fn new(row: &PatternRow) -> Option<PatternView> {
+        Some(PatternView {
+            id: row.id,
+            description: row.pattern()?.describe(),
+        })
+    }
+}
+
+/// `POST /campaigns/{id}/schedule/patterns`. `weekdays` are repeated checkbox values 0 (Monday)
+/// to 6 (Sunday); `first_week` is any date in the first week with sessions.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct PatternForm {
+    #[serde(default)]
+    pub weekdays: Vec<u8>,
+    pub start_time: String,
+    pub every_n_weeks: u32,
+    #[serde(default)]
+    pub first_week: String,
+}
+
+/// A validated `PatternForm`, ready to insert.
+pub struct NewPattern {
+    pub weekdays: i64,
+    pub start_time: String,
+    pub every_n_weeks: i64,
+    pub anchor_date: String,
+}
+
+impl PatternForm {
+    pub fn validate(&self, today: NaiveDate) -> Result<NewPattern, &'static str> {
+        let mut weekdays: u8 = 0;
+        for day in &self.weekdays {
+            if *day > 6 {
+                return Err("Pick days of the week.");
+            }
+            weekdays |= 1 << day;
+        }
+        if weekdays == 0 {
+            return Err("Pick at least one day of the week.");
+        }
+        let start_time = NaiveTime::parse_from_str(self.start_time.trim(), "%H:%M")
+            .map_err(|_| "Fill in a start time.")?;
+        if !(1..=4).contains(&self.every_n_weeks) {
+            return Err("Pick how often: every 1 to 4 weeks.");
+        }
+        let first_week = if self.first_week.trim().is_empty() {
+            today
+        } else {
+            NaiveDate::parse_from_str(self.first_week.trim(), "%Y-%m-%d")
+                .map_err(|_| "The first week isn't a valid date.")?
+        };
+        Ok(NewPattern {
+            weekdays: i64::from(weekdays),
+            start_time: start_time.format("%H:%M").to_string(),
+            every_n_weeks: i64::from(self.every_n_weeks),
+            anchor_date: monday_of(first_week).format("%Y-%m-%d").to_string(),
+        })
+    }
+}
+
+/// `GET /campaigns/{id}/schedule/new?pattern_id=…&weeks=…` fills the dates from a pattern.
+#[derive(serde::Deserialize)]
+pub struct GenerateQuery {
+    pub pattern_id: Option<i64>,
+    pub weeks: Option<u32>,
 }
 
 #[derive(serde::Deserialize)]

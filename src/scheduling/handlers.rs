@@ -19,7 +19,7 @@ use crate::{
 use axum::{
     extract::{Form, Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use minijinja::{Value, context, value::Serde};
 use std::{collections::HashMap, sync::Arc};
@@ -36,19 +36,10 @@ pub async fn new_form(
         return Err(AppError::NotFound);
     }
     let weeks = query.weeks.unwrap_or(3).clamp(1, 8);
-    let mut options = Vec::new();
-    if let Some(pattern_id) = query.pattern_id {
-        let row = db::pattern(&state.db, id, pattern_id)
-            .await?
-            .ok_or(AppError::NotFound)?;
-        if let Some(pattern) = row.pattern() {
-            options = pattern
-                .generate(chrono::Utc::now(), weeks, state.tz)
-                .into_iter()
-                .map(|t| When::new(t, state.tz).input)
-                .collect();
-        }
-    }
+    let options = match query.pattern_id {
+        Some(pattern_id) => slot_dates(&state, id, pattern_id, weeks).await?,
+        None => Vec::new(),
+    };
     let number = db::next_session_number(&state.db, id).await?;
     let form = NewPollForm {
         title: format!("Session {number}"),
@@ -68,6 +59,44 @@ pub async fn new_form(
             weeks,
         },
     )
+}
+
+/// `GET /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…`: the dates a regular slot
+/// generates, as a JSON list of datetime-local strings. The poll form's "Fill" adds them to its
+/// date list without reloading the page.
+pub async fn slot_dates_json(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<GenerateQuery>,
+) -> Result<Json<Vec<String>>, AppError> {
+    let (_, access) = load_for(&state.db, id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    let pattern_id = query.pattern_id.ok_or(AppError::BadRequest)?;
+    let weeks = query.weeks.unwrap_or(3).clamp(1, 8);
+    Ok(Json(slot_dates(&state, id, pattern_id, weeks).await?))
+}
+
+/// The next `weeks` weeks of a campaign's regular slot, as datetime-local strings.
+async fn slot_dates(
+    state: &AppState,
+    campaign_id: i64,
+    pattern_id: i64,
+    weeks: u32,
+) -> Result<Vec<String>, AppError> {
+    let row = db::pattern(&state.db, campaign_id, pattern_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let Some(pattern) = row.pattern() else {
+        return Ok(Vec::new());
+    };
+    Ok(pattern
+        .generate(chrono::Utc::now(), weeks, state.tz)
+        .into_iter()
+        .map(|t| When::new(t, state.tz).input)
+        .collect())
 }
 
 pub async fn create(
@@ -226,6 +255,7 @@ async fn render_edit(
         .into_iter()
         .map(|(starts_at, count)| (When::from_db(&starts_at, state.tz).input, count))
         .collect();
+    let patterns = pattern_views(state, campaign.id).await?;
     state.render(
         "schedule/new.html",
         context! {
@@ -234,6 +264,8 @@ async fn render_edit(
             poll => Serde(PollView::new(poll, state.tz)),
             form => Serde(form),
             votes => Serde(&votes),
+            patterns => Serde(&patterns),
+            weeks => 3,
             error,
         },
     )

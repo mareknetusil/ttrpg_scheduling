@@ -10,12 +10,15 @@
      patterns      list of { id, description }: the campaign's regular slots
      selected_pattern  optional id of the slot the dates were filled from
      weeks         how many weeks ahead the fill covered (default 3)
-     poll          optional { id, title, ... }: set when editing an open poll (no slot fill then)
+     poll          optional { id, title, ... }: set when editing an open poll
      votes         optional map datetime-local value → number of answers, for the existing dates
                    of the poll being edited
 
    Requests:
-     GET  /campaigns/{id}/schedule/new?pattern_id=…&weeks=…   reload with dates from a regular slot
+     GET  /campaigns/{id}/schedule/new?pattern_id=…&weeks=…   the form with dates from a slot (the
+                                     regular slots page links here)
+     GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   JSON list of datetime-local
+                                     strings; "Fill" adds them to the date list (Alpine fetch)
      POST /campaigns/{id}/schedule   fields title, description_md, deadline (may be empty),
                                      options (repeated, one per candidate date, datetime-local,
                                      in the display time zone)
@@ -34,28 +37,31 @@
   {% else %}
   <h1>New scheduling poll</h1>
   <p class="muted">Propose dates; members answer yes, maybe or no for each. You pick the final date.</p>
+  {% endif %}
 
-  <form method="get" action="/campaigns/{{ campaign.id }}/schedule/new" class="card inline-form fill-form">
+  <div x-data='dateList({{ (form.options if form and form.options else [""])|tojson }}, {{ (votes or {})|tojson }})'>
+  <div class="card inline-form fill-form">
     {% if patterns %}
-      <label for="pattern_id">Fill dates from</label>
-      <select id="pattern_id" name="pattern_id">
+      <label for="pattern_id">Add dates from</label>
+      <select id="pattern_id" x-ref="pattern">
         {% for p in patterns %}
           <option value="{{ p.id }}" {% if p.id == selected_pattern %}selected{% endif %}>{{ p.description }}</option>
         {% endfor %}
       </select>
       <label for="weeks">for the next</label>
-      <select id="weeks" name="weeks">
+      <select id="weeks" x-ref="weeks">
         {% for n in [1, 2, 3, 4, 6, 8] %}
           <option value="{{ n }}" {% if n == weeks %}selected{% endif %}>{{ n }} week{% if n > 1 %}s{% endif %}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="button button--secondary">Fill</button>
+      <button type="button" class="button button--secondary"
+              @click="fill('/campaigns/{{ campaign.id }}/schedule/slot-dates')">Add</button>
       <a class="small" href="/campaigns/{{ campaign.id }}/schedule/patterns">Edit slots</a>
+      <span class="muted small fill-form__message" role="status" x-text="fillMessage"></span>
     {% else %}
-      <span class="muted">Tip: set up the group's <a href="/campaigns/{{ campaign.id }}/schedule/patterns">regular slots</a> to fill the dates in one click.</span>
+      <span class="muted">Tip: set up the group's <a href="/campaigns/{{ campaign.id }}/schedule/patterns">regular slots</a> to add the dates in one click.</span>
     {% endif %}
-  </form>
-  {% endif %}
+  </div>
 
   <div class="card">
     {% if error %}
@@ -63,8 +69,7 @@
     {% endif %}
 
     <form method="post" class="form"
-          action="{% if poll %}/schedule/{{ poll.id }}{% else %}/campaigns/{{ campaign.id }}/schedule{% endif %}"
-          x-data='dateList({{ (form.options if form and form.options else [""])|tojson }}, {{ (votes or {})|tojson }})'>
+          action="{% if poll %}/schedule/{{ poll.id }}{% else %}/campaigns/{{ campaign.id }}/schedule{% endif %}">
       <div class="field">
         <label for="title">Title</label>
         <input id="title" name="title" type="text" required maxlength="100" autofocus
@@ -108,6 +113,7 @@
       </div>
     </form>
   </div>
+  </div>
 </section>
 
 <script>
@@ -127,6 +133,27 @@
         this.options.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
       },
       remove(i) { this.options.splice(i, 1); },
+      // Adds a regular slot's dates (fetched as JSON) to the list, sorted, skipping duplicates
+      // and dropping empty rows.
+      fillMessage: "",
+      async fill(url) {
+        const params = new URLSearchParams({ pattern_id: this.$refs.pattern.value, weeks: this.$refs.weeks.value });
+        let dates;
+        try {
+          const r = await fetch(`${url}?${params}`);
+          dates = await r.json();
+        } catch (e) {
+          this.fillMessage = "Couldn't load the dates. Reload the page and try again.";
+          return;
+        }
+        const kept = this.options.filter((o) => o);
+        const added = dates.filter((d) => !kept.includes(d));
+        const all = kept.concat(added).sort();
+        this.options = all.length ? all : [""];
+        this.fillMessage = dates.length === 0 ? "No dates in that range."
+          : added.length === 0 ? "Those dates are already in the list."
+          : `Added ${added.length} date${added.length === 1 ? "" : "s"}.`;
+      },
     };
   }
 </script>

@@ -328,6 +328,7 @@ POST /campaigns/{id}/schedule
 GET  /campaigns/{id}/schedule/patterns, POST …/patterns              # regular slots (GM/admin)
 DELETE /campaigns/{id}/schedule/patterns/{pattern_id}                # htmx
 GET  /schedule/{poll_id}                               # voting grid
+GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   # JSON dates of a regular slot (GM); the poll form's "Add"
 GET  /schedule/{poll_id}/edit, POST /schedule/{poll_id}   # edit an open poll (GM); dates matched by time keep their votes
 PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid or HX-Refresh
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session

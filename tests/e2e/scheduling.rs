@@ -245,11 +245,33 @@ async fn regular_slots_fill_a_new_poll(db: SqlitePool) {
         ))
         .await;
     // two weeks of Fridays and Saturdays: 3 or 4 dates depending on today's weekday and time
-    let alpine = r.ok().attr("form[x-data]", "x-data").unwrap();
-    let dates = alpine.matches("T18:00").count();
-    assert!((3..=4).contains(&dates), "{alpine}");
+    let alpine = r.ok().attr("[x-data^=dateList]", "x-data").unwrap();
+    let dates_in_form = alpine.matches("T18:00").count();
+    assert!((3..=4).contains(&dates_in_form), "{alpine}");
+
+    // the same dates as JSON, for the form's "Add" button
+    let json = format!("/campaigns/{id}/schedule/slot-dates?pattern_id={pattern}&weeks=2");
+    let r = gm.get(&json).await;
+    let dates: Vec<String> = serde_json::from_str(&r.ok().body).unwrap();
+    assert_eq!(dates.len(), dates_in_form);
+    assert!(dates.iter().all(|d| d.ends_with("T18:00")));
+    assert_eq!(mark.get(&json).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        gm.get(&format!("/campaigns/{id}/schedule/slot-dates"))
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
 
     let other = gm.create_campaign("Other").await;
+    assert_eq!(
+        gm.get(&format!(
+            "/campaigns/{other}/schedule/slot-dates?pattern_id={pattern}"
+        ))
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
     let r = gm
         .get(&format!(
             "/campaigns/{other}/schedule/new?pattern_id={pattern}"
@@ -447,12 +469,11 @@ async fn edit_an_open_poll(db: SqlitePool) {
         r.attr("#deadline", "value").as_deref(),
         Some("2020-01-01T20:00")
     );
-    let alpine = r.attr("form[x-data]", "x-data").unwrap();
+    let alpine = r.attr("[x-data^=dateList]", "x-data").unwrap();
     assert_eq!(
         alpine,
         r#"dateList(["2030-01-10T18:00", "2030-01-11T18:00"], {"2030-01-10T18:00": 2, "2030-01-11T18:00": 1})"#
     );
-    assert!(!r.has("#pattern_id"), "no slot fill when editing");
 
     // errors re-render the edit form
     let save = format!("/schedule/{poll}");

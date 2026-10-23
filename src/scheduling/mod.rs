@@ -18,6 +18,7 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(handlers::create))
         .route("/new", get(handlers::new_form))
+        .route("/slot-dates", get(handlers::slot_dates_json))
         .route(
             "/patterns",
             get(handlers::patterns_page).post(handlers::create_pattern),

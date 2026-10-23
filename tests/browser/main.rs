@@ -527,3 +527,66 @@ async fn edit_poll_shows_answers_per_date(db: SqlitePool) {
     assert_eq!(hints, ["1 answer", ""]);
     b.quit().await;
 }
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn slot_dates_are_added_in_place(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    gm.post(
+        &format!("/campaigns/{id}/schedule/patterns"),
+        &[
+            ("weekdays", "5"),
+            ("start_time", "18:00"),
+            ("every_n_weeks", "1"),
+        ],
+    )
+    .await
+    .redirect();
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    b.goto(&format!("/campaigns/{id}/schedule/new")).await;
+    b.mark_page().await;
+    b.el("#title").await.clear().await.unwrap();
+    b.el("#title").await.send_keys("Kept title").await.unwrap();
+    b.js::<serde_json::Value>(
+        "const i = document.querySelector('input[name=options]');
+         i.value = '2099-01-01T18:00'; i.dispatchEvent(new Event('input')); return null;",
+    )
+    .await;
+    b.js::<serde_json::Value>("document.getElementById('weeks').value = '2'; return null;")
+        .await;
+    b.el(".fill-form button").await.click().await.unwrap();
+    b.driver
+        .query(By::XPath(
+            "//*[contains(@class, 'fill-form__message')][starts-with(., 'Added ')]",
+        ))
+        .first()
+        .await
+        .unwrap();
+    let values: Vec<String> = b
+        .js("return [...document.querySelectorAll('input[name=options]')].map(i => i.value);")
+        .await;
+    // the next Saturdays (1 or 2, depending on today), then the typed date (sorted); the title
+    // is untouched
+    assert!((2..=3).contains(&values.len()), "{values:?}");
+    assert_eq!(values.last().unwrap(), "2099-01-01T18:00");
+    assert_eq!(
+        b.el("#title").await.prop("value").await.unwrap().as_deref(),
+        Some("Kept title")
+    );
+    assert!(b.still_same_page().await);
+
+    // adding again changes nothing
+    b.el(".fill-form button").await.click().await.unwrap();
+    b.driver
+        .query(By::XPath(
+            "//*[contains(@class, 'fill-form__message')][contains(., 'already in the list')]",
+        ))
+        .first()
+        .await
+        .unwrap();
+    b.quit().await;
+}

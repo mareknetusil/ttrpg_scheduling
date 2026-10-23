@@ -84,7 +84,7 @@ async fn vote_and_decide(db: SqlitePool) {
         r.ok()
             .body
             .trim_start()
-            .starts_with("<div id=\"vote-grid\">")
+            .starts_with("<div id=\"vote-grid\"")
     );
     assert!(!r.body.contains("<html"));
     vote(&nina, poll, opts[0], "maybe").await.ok();
@@ -355,9 +355,9 @@ async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
     let r = mark.get(&format!("/schedule/{poll}")).await;
     assert_eq!(r.ok().text("tr.is-past td.muted"), "Past");
     assert_eq!(r.count(".vote-btn"), 3, "only the future date");
-    assert_eq!(
-        r.text("#vote-grid > p"),
-        "You haven't answered 1 of 1 date yet."
+    assert!(
+        r.text(".your-progress")
+            .starts_with("You haven't answered 1 of 1 date yet.")
     );
     assert!(vote(&mark, poll, opts[0], "yes").await.ok().hx_refresh);
     // the dashboard badge only counts future dates
@@ -639,4 +639,123 @@ async fn reopen_a_decided_poll(db: SqlitePool) {
             .text(".decided")
             .contains("The game session for this poll was cancelled.")
     );
+}
+
+#[sqlx::test]
+async fn grid_conveniences(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, nina) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+                ("options", "2030-01-12T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opts = option_ids(&app, poll).await;
+    let my_answers = async |user: &crate::common::User| -> Vec<(i64, String)> {
+        sqlx::query_as(
+            "SELECT option_id, answer FROM schedule_votes WHERE user_id = ? ORDER BY option_id",
+        )
+        .bind(user.id)
+        .fetch_all(&app.db)
+        .await
+        .unwrap()
+    };
+
+    // a voter doesn't get a column of their own (the "Your answer" column shows it)
+    let r = mark.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.ok().texts(".vote-grid__member"), ["Gina", "Nina"]);
+    assert_eq!(
+        r.attr("#vote-grid", "hx-trigger").as_deref(),
+        Some("every 60s")
+    );
+    assert_eq!(
+        r.text(".answer-rest").split_whitespace().next(),
+        Some("Answer")
+    );
+    assert!(r.text(".answer-rest").starts_with("Answer all:"));
+    // the GM's Pick buttons sit in the date cells
+    assert_eq!(
+        gm.get(&format!("/schedule/{poll}"))
+            .await
+            .count(".vote-grid__date .pick-form"),
+        3
+    );
+
+    // clicking the current answer again clears it
+    let r = vote(&mark, poll, opts[0], "yes").await;
+    let pressed = format!("#vote-{}-yes", opts[0]);
+    assert_eq!(
+        r.ok().attr(&pressed, "hx-delete"),
+        Some(format!("/schedule/{poll}/options/{}/vote", opts[0]))
+    );
+    let r = mark
+        .delete(&format!("/schedule/{poll}/options/{}/vote", opts[0]))
+        .await;
+    assert_eq!(
+        r.ok().attr(&pressed, "aria-pressed").as_deref(),
+        Some("false")
+    );
+    assert!(my_answers(&mark).await.is_empty());
+    assert_eq!(
+        nina.delete(&format!("/schedule/{poll}/options/9999/vote"))
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    // answer the rest: only the unanswered dates change
+    vote(&mark, poll, opts[1], "yes").await.ok();
+    let rest = format!("/schedule/{poll}/vote-unanswered");
+    let r = mark.put(&rest, &[("answer", "no")]).await;
+    assert!(
+        r.ok()
+            .text(".your-progress")
+            .starts_with("You've answered every date.")
+    );
+    assert_eq!(
+        my_answers(&mark).await,
+        [
+            (opts[0], "no".into()),
+            (opts[1], "yes".into()),
+            (opts[2], "no".into())
+        ]
+    );
+    let olga = app.user("olga").await;
+    assert_eq!(
+        olga.put(&rest, &[("answer", "no")]).await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    // the refreshed grid, until voting closes; then the page reloads
+    let grid = format!("/schedule/{poll}/grid");
+    assert!(nina.get(&grid).await.ok().body.contains("vote-grid"));
+    assert_eq!(olga.get(&grid).await.status, StatusCode::NOT_FOUND);
+    // a second open poll is probably for the session after
+    let r = gm.get(&format!("/campaigns/{id}/schedule/new")).await;
+    assert_eq!(r.attr("#title", "value").as_deref(), Some("Session 2"));
+
+    gm.post(&format!("/schedule/{poll}/cancel"), &[])
+        .await
+        .redirect();
+    assert!(nina.get(&grid).await.ok().hx_refresh);
+    assert!(mark.put(&rest, &[("answer", "yes")]).await.ok().hx_refresh);
+    assert!(
+        mark.delete(&format!("/schedule/{poll}/options/{}/vote", opts[1]))
+            .await
+            .ok()
+            .hx_refresh
+    );
+    let r = nina.get(&format!("/schedule/{poll}")).await;
+    assert!(
+        !r.has("#vote-grid[hx-trigger]"),
+        "a closed poll doesn't refresh"
+    );
+    assert_eq!(r.texts(".vote-grid__member"), ["Gina", "Mark", "You"]);
 }

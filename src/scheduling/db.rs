@@ -159,6 +159,82 @@ pub async fn vote_counts(db: &SqlitePool, poll_id: i64) -> Result<Vec<(String, i
     Ok(rows.into_iter().map(|r| (r.starts_at, r.count)).collect())
 }
 
+/// Answers every future option the user hasn't answered yet ("answer the rest"). Like `set_vote`,
+/// only while voting is open; returns false if it isn't.
+pub async fn set_unanswered(
+    db: &SqlitePool,
+    poll_id: i64,
+    user_id: i64,
+    answer: Answer,
+) -> Result<bool, sqlx::Error> {
+    let open = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_polls
+           WHERE id = ? AND status = 'open'
+             AND (deadline_at IS NULL OR deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"#,
+        poll_id
+    )
+    .fetch_one(db)
+    .await?;
+    if open == 0 {
+        return Ok(false);
+    }
+    sqlx::query!(
+        "INSERT INTO schedule_votes (option_id, user_id, answer)
+         SELECT o.id, ?, ? FROM schedule_options AS o
+         WHERE o.poll_id = ? AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+           AND NOT EXISTS (SELECT 1 FROM schedule_votes AS v WHERE v.option_id = o.id AND v.user_id = ?)",
+        user_id,
+        answer,
+        poll_id,
+        user_id
+    )
+    .execute(db)
+    .await?;
+    Ok(true)
+}
+
+/// Removes the user's answer to an option (back to "no answer"), under the same conditions as
+/// `set_vote`. Returns false if the option can't be voted on (any more).
+pub async fn clear_vote(
+    db: &SqlitePool,
+    poll_id: i64,
+    option_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let votable = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "n!: i64"
+           FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id
+           WHERE o.id = ? AND p.id = ? AND p.status = 'open'
+             AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"#,
+        option_id,
+        poll_id
+    )
+    .fetch_one(db)
+    .await?;
+    if votable == 0 {
+        return Ok(false);
+    }
+    sqlx::query!(
+        "DELETE FROM schedule_votes WHERE option_id = ? AND user_id = ?",
+        option_id,
+        user_id
+    )
+    .execute(db)
+    .await?;
+    Ok(true)
+}
+
+/// How many open polls the campaign has (each is probably for a different next session).
+pub async fn open_poll_count(db: &SqlitePool, campaign_id: i64) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_polls WHERE campaign_id = ? AND status = 'open'"#,
+        campaign_id
+    )
+    .fetch_one(db)
+    .await
+}
+
 /// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
 /// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
 /// decided. Returns the new game session id, or `None` if the poll isn't open or the option

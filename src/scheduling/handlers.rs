@@ -41,7 +41,9 @@ pub async fn new_form(
         Some(pattern_id) => slot_dates(&state, id, pattern_id, weeks).await?,
         None => Vec::new(),
     };
-    let number = db::next_session_number(&state.db, id).await?;
+    // Another open poll is probably for the next session already, so count past it
+    let number =
+        db::next_session_number(&state.db, id).await? + db::open_poll_count(&state.db, id).await?;
     let form = NewPollForm {
         title: format!("Session {number}"),
         description_md: String::new(),
@@ -270,6 +272,68 @@ async fn render_edit(
             error,
         },
     )
+}
+
+/// `DELETE` via htmx (clicking your current answer again): back to "no answer". Answers like
+/// `vote`.
+pub async fn clear_vote(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path((poll_id, option_id)): Path<(i64, i64)>,
+) -> Result<Response, AppError> {
+    let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    if access.role.is_none() {
+        return Err(AppError::NotFound);
+    }
+    if !db::clear_vote(&state.db, poll_id, option_id, user.id).await? {
+        let options = db::options(&state.db, poll_id).await?;
+        if !options.iter().any(|o| o.id == option_id) {
+            return Err(AppError::NotFound);
+        }
+        return Ok([("HX-Refresh", "true")].into_response());
+    }
+    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
+    Ok(state
+        .render_block("schedule/show.html", "grid", ctx)?
+        .into_response())
+}
+
+/// `PUT` via htmx, field `answer`: answers every date the user hasn't answered yet.
+pub async fn vote_unanswered(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+    Form(form): Form<VoteForm>,
+) -> Result<Response, AppError> {
+    let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    if access.role.is_none() {
+        return Err(AppError::NotFound);
+    }
+    if !db::set_unanswered(&state.db, poll_id, user.id, form.answer).await? {
+        return Ok([("HX-Refresh", "true")].into_response());
+    }
+    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
+    Ok(state
+        .render_block("schedule/show.html", "grid", ctx)?
+        .into_response())
+}
+
+/// `GET` via htmx every minute while voting is open: the grid with other members' latest answers.
+/// Once voting has closed (decided, cancelled, deadline) the whole page reloads instead, so its
+/// banner updates too; the reloaded grid no longer polls.
+pub async fn grid(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+) -> Result<Response, AppError> {
+    let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    if !poll.voting_open() {
+        return Ok([("HX-Refresh", "true")].into_response());
+    }
+    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
+    Ok(state
+        .render_block("schedule/show.html", "grid", ctx)?
+        .into_response())
 }
 
 pub async fn decide(

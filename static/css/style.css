@@ -594,6 +594,8 @@ input[type="datetime-local"] {
 .vote-grid tr.is-best .vote-grid__date { box-shadow: inset 3px 0 0 var(--success); }
 .vote-grid tr.is-decided td, .vote-grid tr.is-decided .vote-grid__date { background: var(--accent-soft); }
 .vote-grid tr.is-past > * { opacity: 0.55; }
+.vote-grid .pick-form { margin-top: var(--space-1); }
+.answer-rest { white-space: nowrap; margin-left: var(--space-2); }
 .vote-grid form { margin: 0; }
 
 .vote-buttons { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

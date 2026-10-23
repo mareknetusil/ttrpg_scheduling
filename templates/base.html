@@ -45,7 +45,11 @@
         document.getElementById("htmx-error__text").textContent = text;
         document.getElementById("htmx-error").hidden = false;
       }
+      // Background requests (e.g. the poll grid's refresh) mark themselves data-quiet-errors:
+      // they retry anyway, and a notice every minute while offline would be noise.
+      function quiet(e) { return e.detail.elt && e.detail.elt.hasAttribute("data-quiet-errors"); }
       document.addEventListener("htmx:responseError", function (e) {
+        if (quiet(e)) return;
         const status = e.detail.xhr.status;
         // 422 = a deliberately ignored submit (e.g. an empty comment), nothing to report
         if (status === 422) return;
@@ -53,7 +57,8 @@
           ? "Something went wrong on the server. Try again in a moment."
           : "That didn't work: the page is probably out of date.");
       });
-      document.addEventListener("htmx:sendError", function () {
+      document.addEventListener("htmx:sendError", function (e) {
+        if (quiet(e)) return;
         show("Can't reach the server. Is the VPN connected?");
       });
       // An expired login: the server redirects to /login, which XHR follows silently.

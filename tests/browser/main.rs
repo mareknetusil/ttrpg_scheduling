@@ -186,11 +186,27 @@ async fn voting_grid_updates_in_place(db: SqlitePool) {
         .await
         .unwrap();
     b.el(&format!("#vote-{opt}-no[aria-pressed='true']")).await;
-    assert!(b.still_same_page().await, "htmx swap, not a page load");
     assert_eq!(
         app.scalar("SELECT COUNT(*) FROM schedule_votes WHERE answer = 'no'")
             .await,
         1
+    );
+    // clicking the pressed answer again clears it
+    b.el(&format!("#vote-{opt}-no"))
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el(&format!("#vote-{opt}-no[aria-pressed='false']")).await;
+    // "Answer all: Maybe" fills both dates
+    b.el("#answer-rest-maybe").await.click().await.unwrap();
+    b.el(&format!("#vote-{opt}-maybe[aria-pressed='true']"))
+        .await;
+    assert!(b.still_same_page().await, "htmx swaps, not page loads");
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM schedule_votes WHERE answer = 'maybe'")
+            .await,
+        2
     );
     b.quit().await;
 }

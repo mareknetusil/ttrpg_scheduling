@@ -336,6 +336,9 @@ GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   # JSON dates
 POST /schedule/{poll_id}/reopen                       # undo a decision (GM); deletes the untouched session
 GET  /schedule/{poll_id}/edit, POST /schedule/{poll_id}   # edit an open poll (GM); dates matched by time keep their votes
 PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid or HX-Refresh
+DELETE /schedule/{poll_id}/options/{opt_id}/vote       # htmx: clear your answer (click it again); same responses
+PUT  /schedule/{poll_id}/vote-unanswered               # htmx, field answer: answer all dates you haven't; same responses
+GET  /schedule/{poll_id}/grid                          # htmx, every 60 s while voting is open; HX-Refresh once closed
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session
 POST /schedule/{poll_id}/cancel
 

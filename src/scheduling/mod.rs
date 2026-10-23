@@ -28,7 +28,8 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
 /// Nested at `/schedule`.
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/{poll_id}", get(handlers::show))
+        .route("/{poll_id}", get(handlers::show).post(handlers::update))
+        .route("/{poll_id}/edit", get(handlers::edit_form))
         .route("/{poll_id}/options/{option_id}/vote", put(handlers::vote))
         .route("/{poll_id}/decide", post(handlers::decide))
         .route("/{poll_id}/cancel", post(handlers::cancel))

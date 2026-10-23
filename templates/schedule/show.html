@@ -26,7 +26,8 @@
                                                          HX-Refresh if voting closed meanwhile
      POST /schedule/{poll_id}/decide                     field option_id; redirects to the new
                                                          game session
-     POST /schedule/{poll_id}/cancel #}
+     POST /schedule/{poll_id}/cancel
+     GET  /schedule/{poll_id}/edit                       edit form (GM, open polls) #}
 
 {% block title %}{{ poll.title }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -49,10 +50,13 @@
     </p>
   </div>
   {% if can_manage and poll.status == "open" %}
+    <div class="row row--tight">
+    <a class="button button--secondary button--small" href="/schedule/{{ poll.id }}/edit">Edit poll</a>
     <form method="post" action="/schedule/{{ poll.id }}/cancel"
           data-confirm="Cancel this poll? Nobody can vote afterwards." onsubmit="return confirm(this.dataset.confirm)">
       <button type="submit" class="link-button link-button--danger">Cancel poll</button>
     </form>
+    </div>
   {% endif %}
 </section>
 

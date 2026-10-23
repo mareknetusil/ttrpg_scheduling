@@ -488,3 +488,42 @@ async fn failed_votes_are_reported(db: SqlitePool) {
     );
     b.quit().await;
 }
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn edit_poll_shows_answers_per_date(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opt = app.scalar("SELECT MIN(id) FROM schedule_options").await;
+    gm.put(
+        &format!("/schedule/{poll}/options/{opt}/vote"),
+        &[("answer", "yes")],
+    )
+    .await
+    .ok();
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    b.goto(&format!("/schedule/{poll}/edit")).await;
+    b.el(".date-list__row").await;
+    let hints: Vec<String> = b
+        .js(
+            r#"return [...document.querySelectorAll(".date-list__row span.muted")]
+                 .map(s => s.offsetParent ? s.textContent : "");"#,
+        )
+        .await;
+    assert_eq!(hints, ["1 answer", ""]);
+    b.quit().await;
+}

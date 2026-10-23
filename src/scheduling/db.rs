@@ -96,6 +96,69 @@ pub async fn set_vote(
     Ok(result.rows_affected() > 0)
 }
 
+/// Saves an edited open poll. Options are matched by their time: unchanged ones keep their votes,
+/// removed ones are deleted together with their votes, new ones are added. Returns false if the
+/// poll isn't open (any more).
+pub async fn update(db: &SqlitePool, poll_id: i64, poll: &NewPoll) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let updated = sqlx::query!(
+        "UPDATE schedule_polls SET title = ?, description_md = ?, deadline_at = ?
+         WHERE id = ? AND status = 'open'",
+        poll.title,
+        poll.description_md,
+        poll.deadline_at,
+        poll_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Ok(false);
+    }
+    let existing = sqlx::query_as!(
+        OptionRow,
+        "SELECT id, starts_at FROM schedule_options WHERE poll_id = ?",
+        poll_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for option in &existing {
+        if !poll.options.contains(&option.starts_at) {
+            sqlx::query!("DELETE FROM schedule_votes WHERE option_id = ?", option.id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!("DELETE FROM schedule_options WHERE id = ?", option.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+    for starts_at in &poll.options {
+        if !existing.iter().any(|o| &o.starts_at == starts_at) {
+            sqlx::query!(
+                "INSERT INTO schedule_options (poll_id, starts_at) VALUES (?, ?)",
+                poll_id,
+                starts_at
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// How many answers each option of a poll has, for the edit form's warning.
+pub async fn vote_counts(db: &SqlitePool, poll_id: i64) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"SELECT o.starts_at, COUNT(v.user_id) AS "count!: i64"
+           FROM schedule_options AS o LEFT JOIN schedule_votes AS v ON v.option_id = o.id
+           WHERE o.poll_id = ? GROUP BY o.id"#,
+        poll_id
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.starts_at, r.count)).collect())
+}
+
 /// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
 /// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
 /// decided. Returns the new game session id, or `None` if the poll isn't open or the option

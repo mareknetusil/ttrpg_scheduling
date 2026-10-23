@@ -10,18 +10,28 @@
      patterns      list of { id, description }: the campaign's regular slots
      selected_pattern  optional id of the slot the dates were filled from
      weeks         how many weeks ahead the fill covered (default 3)
+     poll          optional { id, title, ... }: set when editing an open poll (no slot fill then)
+     votes         optional map datetime-local value → number of answers, for the existing dates
+                   of the poll being edited
 
    Requests:
      GET  /campaigns/{id}/schedule/new?pattern_id=…&weeks=…   reload with dates from a regular slot
      POST /campaigns/{id}/schedule   fields title, description_md, deadline (may be empty),
                                      options (repeated, one per candidate date, datetime-local,
-                                     in the display time zone) #}
+                                     in the display time zone)
+     POST /schedule/{poll_id}        (editing) the same fields; dates matched by time keep their
+                                     answers, changed or removed ones lose them #}
 
-{% block title %}New scheduling poll · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
+{% block title %}{% if poll %}Edit poll{% else %}New scheduling poll{% endif %} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
 <section class="narrow">
   <p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+  {% if poll %}
+  <h1>Edit poll</h1>
+  <p class="muted">Add or remove dates, or move the deadline (a later deadline reopens voting).
+    Changing or removing a date deletes its answers.</p>
+  {% else %}
   <h1>New scheduling poll</h1>
   <p class="muted">Propose dates; members answer yes, maybe or no for each. You pick the final date.</p>
 
@@ -45,14 +55,16 @@
       <span class="muted">Tip: set up the group's <a href="/campaigns/{{ campaign.id }}/schedule/patterns">regular slots</a> to fill the dates in one click.</span>
     {% endif %}
   </form>
+  {% endif %}
 
   <div class="card">
     {% if error %}
       <p class="alert alert--error" role="alert">{{ error }}</p>
     {% endif %}
 
-    <form method="post" action="/campaigns/{{ campaign.id }}/schedule" class="form"
-          x-data='dateList({{ (form.options if form and form.options else [""])|tojson }})'>
+    <form method="post" class="form"
+          action="{% if poll %}/schedule/{{ poll.id }}{% else %}/campaigns/{{ campaign.id }}/schedule{% endif %}"
+          x-data='dateList({{ (form.options if form and form.options else [""])|tojson }}, {{ (votes or {})|tojson }})'>
       <div class="field">
         <label for="title">Title</label>
         <input id="title" name="title" type="text" required maxlength="100" autofocus
@@ -69,6 +81,8 @@
                    :aria-label="'Date ' + (i + 1)" required>
             <button type="button" class="link-button link-button--danger" @click="remove(i)"
                     x-show="options.length > 1">Remove</button>
+            <span class="muted small" x-show="votes[value]"
+                  x-text="votes[value] + (votes[value] === 1 ? ' answer' : ' answers')"></span>
           </div>
         </template>
         <div class="row">
@@ -84,8 +98,13 @@
       </div>
 
       <div class="row">
-        <button type="submit" class="button">Create poll</button>
-        <a href="/campaigns/{{ campaign.id }}">Cancel</a>
+        {% if poll %}
+          <button type="submit" class="button">Save</button>
+          <a href="/schedule/{{ poll.id }}">Cancel</a>
+        {% else %}
+          <button type="submit" class="button">Create poll</button>
+          <a href="/campaigns/{{ campaign.id }}">Cancel</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -94,9 +113,11 @@
 <script>
   // Candidate dates: a list of datetime-local strings ("2026-10-24T18:00").
   // add(days) appends the last date moved by `days`, keeping the time of day.
-  function dateList(initial) {
+  // votes: answers per existing date (editing), shown next to the dates that have any.
+  function dateList(initial, votes) {
     return {
       options: initial.length ? initial : [""],
+      votes: votes || {},
       add(days) {
         const last = this.options[this.options.length - 1];
         if (!last) { this.options.push(""); return; }

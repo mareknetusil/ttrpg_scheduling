@@ -1,8 +1,8 @@
 use super::{
     db,
     model::{
-        Answer, DecideForm, GenerateQuery, NewPollForm, PatternForm, PatternView, Poll, PollView,
-        VoteForm,
+        Answer, DecideForm, GenerateQuery, NewPollForm, PatternForm, PatternView, Poll, PollStatus,
+        PollView, VoteForm,
     },
 };
 use crate::{
@@ -141,6 +141,93 @@ pub async fn vote(
     Ok(state
         .render_block("schedule/show.html", "grid", ctx)?
         .into_response())
+}
+
+/// The new-poll form, filled with an open poll's current values. Only the GM edits, and only while
+/// the poll is open.
+pub async fn edit_form(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+) -> Result<Response, AppError> {
+    let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    if poll.status != PollStatus::Open {
+        return Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response());
+    }
+    let options = db::options(&state.db, poll_id)
+        .await?
+        .iter()
+        .map(|o| When::from_db(&o.starts_at, state.tz).input)
+        .collect();
+    let form = NewPollForm {
+        title: poll.title.clone(),
+        description_md: poll.description_md.clone(),
+        deadline: match &poll.deadline_at {
+            Some(d) => When::from_db(d, state.tz).input,
+            None => String::new(),
+        },
+        options,
+    };
+    Ok(render_edit(&state, &user, &poll, &campaign, &form, None)
+        .await?
+        .into_response())
+}
+
+pub async fn update(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+    axum_extra::extract::Form(mut form): axum_extra::extract::Form<NewPollForm>,
+) -> Result<Response, AppError> {
+    let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    form.trim();
+    let new_poll = match form.validate(state.tz) {
+        Ok(new_poll) => new_poll,
+        Err(error) => {
+            return Ok(
+                render_edit(&state, &user, &poll, &campaign, &form, Some(error))
+                    .await?
+                    .into_response(),
+            );
+        }
+    };
+    // false: decided or cancelled meanwhile; the poll page shows that
+    db::update(&state.db, poll_id, &new_poll).await?;
+    Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
+}
+
+/// `schedule/new.html` in edit mode (`poll` is set).
+async fn render_edit(
+    state: &AppState,
+    user: &CurrentUser,
+    poll: &Poll,
+    campaign: &Campaign,
+    form: &NewPollForm,
+    error: Option<String>,
+) -> Result<Html<String>, AppError> {
+    // Answers per date, keyed like the form's datetime-local values
+    let votes: HashMap<String, i64> = db::vote_counts(&state.db, poll.id)
+        .await?
+        .into_iter()
+        .map(|(starts_at, count)| (When::from_db(&starts_at, state.tz).input, count))
+        .collect();
+    state.render(
+        "schedule/new.html",
+        context! {
+            current_user => Serde(user),
+            campaign => Serde(campaign),
+            poll => Serde(PollView::new(poll, state.tz)),
+            form => Serde(form),
+            votes => Serde(&votes),
+            error,
+        },
+    )
 }
 
 pub async fn decide(

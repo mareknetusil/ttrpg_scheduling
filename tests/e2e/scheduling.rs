@@ -41,7 +41,7 @@ async fn new_poll_validation(db: SqlitePool) {
         .await;
     assert!(r.error().contains("isn't a valid date and time"));
     // the entered dates come back to Alpine as JSON
-    assert!(r.body.contains(r#"dateList(["2026-11-01T25:00"])"#));
+    assert!(r.body.contains(r#"dateList(["2026-11-01T25:00"], {})"#));
 }
 
 #[sqlx::test]
@@ -407,4 +407,102 @@ async fn waiting_on_and_no_conflicts(db: SqlitePool) {
     // the second date has more yes but also a "no": the markers point at different dates
     assert_eq!(r.texts("tbody tr:first-child .badge"), ["No one said no"]);
     assert_eq!(r.texts("tbody tr:nth-child(2) .badge"), ["Most yes"]);
+}
+
+#[sqlx::test]
+async fn edit_an_open_poll(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, nina) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("deadline", "2020-01-01T20:00"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opts = option_ids(&app, poll).await;
+    // votes from before the deadline
+    for (user, opt) in [(&mark, opts[0]), (&nina, opts[0]), (&mark, opts[1])] {
+        sqlx::query("INSERT INTO schedule_votes (option_id, user_id, answer) VALUES (?, ?, 'yes')")
+            .bind(opt)
+            .bind(user.id)
+            .execute(&app.db)
+            .await
+            .unwrap();
+    }
+
+    let edit = format!("/schedule/{poll}/edit");
+    assert_eq!(mark.get(&edit).await.status, StatusCode::NOT_FOUND);
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.ok().attr("a[href$='/edit']", "href"), Some(edit.clone()));
+    let r = gm.get(&edit).await;
+    assert_eq!(r.ok().text("h1"), "Edit poll");
+    assert_eq!(r.attr("#title", "value").as_deref(), Some("S1"));
+    assert_eq!(
+        r.attr("#deadline", "value").as_deref(),
+        Some("2020-01-01T20:00")
+    );
+    let alpine = r.attr("form[x-data]", "x-data").unwrap();
+    assert_eq!(
+        alpine,
+        r#"dateList(["2030-01-10T18:00", "2030-01-11T18:00"], {"2030-01-10T18:00": 2, "2030-01-11T18:00": 1})"#
+    );
+    assert!(!r.has("#pattern_id"), "no slot fill when editing");
+
+    // errors re-render the edit form
+    let save = format!("/schedule/{poll}");
+    let r = gm
+        .post(&save, &[("title", ""), ("options", "2030-01-10T18:00")])
+        .await;
+    assert!(r.error().contains("Fill in a title"));
+    assert_eq!(r.attr("form.form", "action"), Some(save.clone()));
+    assert_eq!(
+        mark.post(&save, &[("title", "X"), ("options", "2030-01-10T18:00")])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    // keep the 10th (2 votes), drop the 11th (1 vote), add the 12th, reopen voting
+    let r = gm
+        .post(
+            &save,
+            &[
+                ("title", "Session one"),
+                ("deadline", "2030-01-01T20:00"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-12T18:00"),
+            ],
+        )
+        .await;
+    assert_eq!(r.redirect(), save);
+    let new_opts = option_ids(&app, poll).await;
+    assert_eq!(new_opts.len(), 2);
+    assert_eq!(new_opts[0], opts[0], "the kept date keeps its id");
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM schedule_votes").await, 2);
+    let r = mark.get(&save).await;
+    assert_eq!(r.ok().text("h1"), "Session one");
+    assert!(r.has(".vote-btn"), "the later deadline reopened voting");
+
+    // a decided poll can't be edited
+    gm.post(
+        &format!("/schedule/{poll}/decide"),
+        &[("option_id", &new_opts[0].to_string())],
+    )
+    .await
+    .redirect_id("/sessions/");
+    assert_eq!(gm.get(&edit).await.redirect(), save);
+    gm.post(
+        &save,
+        &[("title", "Changed"), ("options", "2030-02-01T18:00")],
+    )
+    .await
+    .redirect();
+    assert_eq!(gm.get(&save).await.text("h1"), "Session one");
+    assert!(!gm.get(&save).await.has("a[href$='/edit']"));
 }

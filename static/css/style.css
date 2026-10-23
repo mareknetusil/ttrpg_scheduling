@@ -14,6 +14,8 @@
   --success-soft: #e3f1e4;
   --warn: #8a6100;
   --warn-soft: #fbf0d4;
+  --info: #2a5f8f;
+  --info-soft: #e3eef8;
 
   --radius: 8px;
   --space-1: 0.25rem;
@@ -44,6 +46,8 @@
     --success-soft: #1d3321;
     --warn: #e7c06a;
     --warn-soft: #3a2f14;
+    --info: #8cbbe6;
+    --info-soft: #1a2a3a;
   }
 }
 
@@ -411,6 +415,38 @@ a.button { text-decoration: none; }
   border-left: 3px solid var(--accent);
   color: var(--muted);
 }
+/* Callouts: `> [!info] Title` in Markdown (src/markdown.rs). <div> or, when collapsible, <details> */
+.prose .callout {
+  --callout: var(--info);
+  --callout-soft: var(--info-soft);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--callout);
+  border-radius: var(--radius);
+  background: var(--callout-soft);
+}
+.prose .callout--warning { --callout: var(--warn); --callout-soft: var(--warn-soft); }
+.prose .callout--todo { --callout: var(--accent); --callout-soft: var(--accent-soft); }
+.prose .callout > :last-child { margin-bottom: 0; }
+.prose .callout__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--callout);
+  font-weight: 700;
+}
+.prose .callout__title:last-child { margin-bottom: 0; }
+.prose .callout__title::before { flex: none; width: 1.1em; text-align: center; }
+.prose .callout--info .callout__title::before { content: "\2139\FE0E"; }    /* ℹ */
+.prose .callout--warning .callout__title::before { content: "\26A0\FE0E"; } /* ⚠ */
+.prose .callout--todo .callout__title::before { content: "\2611\FE0E"; }    /* ☑ */
+summary.callout__title { cursor: pointer; list-style: none; }
+summary.callout__title::-webkit-details-marker { display: none; }
+summary.callout__title::after { content: "\25B8"; margin-left: auto; transition: transform 0.15s; } /* ▸ */
+details.callout[open] > summary.callout__title::after { transform: rotate(90deg); }
+details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
+
 .prose code {
   padding: 0.1em 0.3em;
   border-radius: 4px;

@@ -391,6 +391,12 @@ the display time zone, together with an ISO string for `<time datetime="…">`.
 - Editor: a `<textarea>` with Write/Preview tabs (Alpine + `hx-post="/markdown/preview"`), the
   `markdown_field` macro in `templates/_markdown.html`. The preview endpoint renders whichever
   single form field it receives (`hx-include` of the textarea).
+- Obsidian-style callouts: a blockquote starting with `> [!type] Optional title` renders as
+  `<div class="callout callout--type">` with a `callout__title` line (`markdown::callouts`, a
+  pass over the parser's events). Types: `info`, `warning`, `todo`; any other type looks like
+  info and its name becomes the default title. `[!type]-` / `[!type]+` make it collapsible
+  (`<details>`, closed / open). The sanitizer keeps `class` on `div`, `p`, `details` and
+  `summary` only when every class starts with `callout`, so raw HTML can't reuse site classes.
 - Task-list checkboxes survive sanitizing: `<input>` is allowed with only `type="checkbox"`,
   `checked` and a forced `disabled`.
 - Page slugs come from the title (accents transliterated with `deunicode`), are unique per

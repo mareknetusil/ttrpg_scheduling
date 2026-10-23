@@ -33,6 +33,17 @@ pub struct Poll {
     pub game_session_id: Option<i64>,
 }
 
+impl Poll {
+    /// Members can vote: the poll is open and its deadline (if any) hasn't passed.
+    pub fn voting_open(&self) -> bool {
+        let deadline_passed = match self.deadline_at.as_deref().and_then(time::from_db) {
+            Some(deadline) => deadline <= chrono::Utc::now(),
+            None => false,
+        };
+        self.status == PollStatus::Open && !deadline_passed
+    }
+}
+
 /// A poll prepared for templates.
 #[derive(serde::Serialize)]
 pub struct PollView {
@@ -40,6 +51,8 @@ pub struct PollView {
     pub title: String,
     pub status: PollStatus,
     pub deadline: Option<When>,
+    /// See `Poll::voting_open`
+    pub voting_open: bool,
     pub decided_option_id: Option<i64>,
     pub game_session_id: Option<i64>,
 }
@@ -51,6 +64,7 @@ impl PollView {
             title: poll.title.clone(),
             status: poll.status,
             deadline: poll.deadline_at.as_deref().map(|d| When::from_db(d, tz)),
+            voting_open: poll.voting_open(),
             decided_option_id: poll.decided_option_id,
             game_session_id: poll.game_session_id,
         }
@@ -76,8 +90,11 @@ pub struct PollSummary {
     pub campaign_name: String,
     pub title: String,
     pub status: PollStatus,
+    /// See `Poll::voting_open`
+    pub voting_open: bool,
+    /// Options still in the future (past ones can't be voted on)
     pub option_count: i64,
-    /// How many of the options the current user has answered
+    /// How many of those future options the current user has answered
     pub my_vote_count: i64,
 }
 

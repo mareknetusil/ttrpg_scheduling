@@ -33,6 +33,44 @@
     {% block content %}{% endblock %}
   </main>
 
+  {# Shown by the script below when an htmx request fails; without it the click does nothing. #}
+  <div id="htmx-error" class="toast alert alert--error" role="alert" hidden>
+    <span id="htmx-error__text"></span>
+    <button type="button" class="link-button" onclick="location.reload()">Reload</button>
+    <button type="button" class="link-button" onclick="this.parentElement.hidden = true">Dismiss</button>
+  </div>
+  <script>
+    (function () {
+      function show(text) {
+        document.getElementById("htmx-error__text").textContent = text;
+        document.getElementById("htmx-error").hidden = false;
+      }
+      document.addEventListener("htmx:responseError", function (e) {
+        const status = e.detail.xhr.status;
+        // 422 = a deliberately ignored submit (e.g. an empty comment), nothing to report
+        if (status === 422) return;
+        show(status >= 500
+          ? "Something went wrong on the server. Try again in a moment."
+          : "That didn't work: the page is probably out of date.");
+      });
+      document.addEventListener("htmx:sendError", function () {
+        show("Can't reach the server. Is the VPN connected?");
+      });
+      // An expired login: the server redirects to /login, which XHR follows silently.
+      // Go there for real instead of swapping the login page into a fragment.
+      document.addEventListener("htmx:beforeSwap", function (e) {
+        const url = e.detail.xhr.responseURL;
+        if (url && new URL(url).pathname === "/login") {
+          e.detail.shouldSwap = false;
+          window.location.href = "/login";
+        }
+      });
+      document.addEventListener("htmx:afterRequest", function (e) {
+        if (e.detail.successful) document.getElementById("htmx-error").hidden = true;
+      });
+    })();
+  </script>
+
   <footer class="site-footer">
     <div class="container site-footer__inner">
       <span>Roll for initiative.</span>

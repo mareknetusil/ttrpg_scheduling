@@ -416,3 +416,75 @@ async fn deleting_a_campaign_needs_the_typed_name(db: SqlitePool) {
     assert_eq!(app.scalar("SELECT COUNT(*) FROM campaigns").await, 0);
     b.quit().await;
 }
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn failed_votes_are_reported(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let mark = app.user("mark").await;
+    app.add_member(id, &mark).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S1"), ("options", "2030-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opt = app.scalar("SELECT MIN(id) FROM schedule_options").await;
+
+    let b = Browser::start(&app).await;
+    b.login("mark").await;
+    b.goto(&format!("/schedule/{poll}")).await;
+
+    // The GM cancels while the page is open: the vote reloads the page (HX-Refresh), which
+    // says why the buttons are gone.
+    gm.post(&format!("/schedule/{poll}/cancel"), &[])
+        .await
+        .redirect();
+    b.mark_page().await;
+    b.el(&format!("#vote-{opt}-yes"))
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.driver
+        .query(By::XPath("//p[contains(., 'This poll was cancelled.')]"))
+        .first()
+        .await
+        .unwrap();
+    assert!(!b.still_same_page().await, "the page was reloaded");
+
+    // A request that fails (404: no longer a member) shows the error notice instead of nothing
+    let other = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S2"), ("options", "2030-01-11T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opt = app.scalar("SELECT MAX(id) FROM schedule_options").await;
+    b.goto(&format!("/schedule/{other}")).await;
+    b.el(&format!("#vote-{opt}-yes")).await;
+    sqlx::query("DELETE FROM campaign_members WHERE user_id = ?")
+        .bind(mark.id)
+        .execute(&app.db)
+        .await
+        .unwrap();
+    b.el(&format!("#vote-{opt}-yes"))
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el("#htmx-error:not([hidden])").await;
+    assert!(
+        b.el("#htmx-error__text")
+            .await
+            .text()
+            .await
+            .unwrap()
+            .contains("out of date")
+    );
+    b.quit().await;
+}

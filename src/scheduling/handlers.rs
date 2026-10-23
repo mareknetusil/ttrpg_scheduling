@@ -1,8 +1,8 @@
 use super::{
     db,
     model::{
-        Answer, DecideForm, GenerateQuery, NewPollForm, PatternForm, PatternView, Poll, PollStatus,
-        PollView, VoteForm,
+        Answer, DecideForm, GenerateQuery, NewPollForm, PatternForm, PatternView, Poll, PollView,
+        VoteForm,
     },
 };
 use crate::{
@@ -121,17 +121,26 @@ pub async fn vote(
     user: CurrentUser,
     Path((poll_id, option_id)): Path<(i64, i64)>,
     Form(form): Form<VoteForm>,
-) -> Result<Html<String>, AppError> {
+) -> Result<Response, AppError> {
     let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
     // Only members vote; an admin who isn't a member can look but not vote.
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
     if !db::set_vote(&state.db, poll_id, option_id, user.id, form.answer).await? {
-        return Err(AppError::NotFound);
+        let options = db::options(&state.db, poll_id).await?;
+        if !options.iter().any(|o| o.id == option_id) {
+            return Err(AppError::NotFound);
+        }
+        // A real option that can't be voted on any more: since the page was loaded the poll was
+        // decided or cancelled, or the deadline or the date passed. htmx reloads the page, which
+        // shows why.
+        return Ok([("HX-Refresh", "true")].into_response());
     }
     let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    state.render_block("schedule/show.html", "grid", ctx)
+    Ok(state
+        .render_block("schedule/show.html", "grid", ctx)?
+        .into_response())
 }
 
 pub async fn decide(
@@ -309,24 +318,34 @@ async fn poll_context(
             }
         })
         .collect();
-    // "Most yes" (ties broken by maybe), only once someone said yes. Ties all get the marker.
-    let best = options.iter().map(|o| (o.yes, o.maybe)).max();
+    // "Most yes" (ties broken by maybe) among the dates still ahead, only once someone said yes.
+    // Ties all get the marker.
+    let best = options
+        .iter()
+        .filter(|o| !o.when.is_past)
+        .map(|o| (o.yes, o.maybe))
+        .max();
     if let Some(best) = best.filter(|(yes, _)| *yes > 0) {
         for o in &mut options {
-            o.is_best = (o.yes, o.maybe) == best;
+            o.is_best = !o.when.is_past && (o.yes, o.maybe) == best;
         }
     }
-    let unanswered = options.iter().filter(|o| o.mine.is_none()).count();
+    let upcoming = options.iter().filter(|o| !o.when.is_past).count();
+    let unanswered = options
+        .iter()
+        .filter(|o| !o.when.is_past && o.mine.is_none())
+        .count();
 
     Ok(context! {
         current_user => Serde(user),
         campaign => Serde(campaign),
         can_manage => access.can_manage(),
-        can_vote => access.role.is_some() && poll.status == PollStatus::Open,
+        can_vote => access.role.is_some() && poll.voting_open(),
         poll => Serde(PollView::new(poll, state.tz)),
         description_html => markdown::render(&poll.description_md),
         members => Serde(&members),
         options => Serde(&options),
+        upcoming,
         unanswered,
     })
 }

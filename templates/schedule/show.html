@@ -4,19 +4,23 @@
      current_user      required (nav)
      campaign          { id, name, gm_user_id, ... }
      can_manage        bool: GM or admin (pick a date, cancel)
-     can_vote          bool: a member, and the poll is open
+     can_vote          bool: a member, and voting is open (poll.voting_open)
      poll              { id, title, status: "open" | "decided" | "cancelled", deadline: When?,
-                         decided_option_id?, game_session_id? }
+                         voting_open (open and the deadline hasn't passed), decided_option_id?,
+                         game_session_id? }
      description_html  sanitized HTML (may be empty)
      members           list of { user_id, username, display_name, joined_at }: grid columns
      options           list of { id, when: When, yes, maybe, no, cells: [answer?] (one per member,
-                       in members order), mine: answer?, is_best, is_decided }
-     unanswered        number of options the current user hasn't answered
+                       in members order), mine: answer?, is_best, is_decided }; options whose
+                       when.is_past can't be voted on or picked
+     upcoming          number of options still in the future
+     unanswered        number of upcoming options the current user hasn't answered
    When = { iso, date, date_long, time, full, input, is_past }; answer = "yes" | "maybe" | "no".
 
    Requests:
      PUT  /schedule/{poll_id}/options/{option_id}/vote   htmx, field answer; the response is the
-                                                         `grid` block, swapped over #vote-grid
+                                                         `grid` block, swapped over #vote-grid, or
+                                                         HX-Refresh if voting closed meanwhile
      POST /schedule/{poll_id}/decide                     field option_id; redirects to the new
                                                          game session
      POST /schedule/{poll_id}/cancel #}
@@ -30,8 +34,10 @@
   <div>
     <h1>{{ poll.title }}</h1>
     <p class="muted">
-      {% if poll.status == "open" %}
+      {% if poll.status == "open" and poll.voting_open %}
         Scheduling poll{% if poll.deadline %} · vote by <time datetime="{{ poll.deadline.iso }}">{{ poll.deadline.full }}</time>{% endif %}
+      {% elif poll.status == "open" %}
+        Voting closed on <time datetime="{{ poll.deadline.iso }}">{{ poll.deadline.full }}</time>
       {% elif poll.status == "decided" %}
         Decided
       {% else %}
@@ -56,6 +62,16 @@
   {% endfor %}
 {% elif poll.status == "cancelled" %}
   <p class="alert">This poll was cancelled.</p>
+{% elif not poll.voting_open %}
+  <p class="alert">
+    {% if can_manage %}The vote deadline has passed. Pick a date below, or cancel the poll.
+    {% else %}The vote deadline has passed. Waiting for the GM to pick a date.{% endif %}
+  </p>
+{% elif not upcoming %}
+  <p class="alert">
+    All the proposed dates have passed.
+    {% if can_manage %}Cancel this poll and start a new one.{% endif %}
+  </p>
 {% endif %}
 
 {% if description_html %}
@@ -65,10 +81,10 @@
 <section class="card">
   {% block grid %}
   <div id="vote-grid">
-    {% if can_vote %}
+    {% if can_vote and upcoming %}
       <p class="muted small">
         {% if unanswered %}
-          You haven't answered {{ unanswered }} of {{ options|length }} dates yet.
+          You haven't answered {{ unanswered }} of {{ upcoming }} date{% if upcoming != 1 %}s{% endif %} yet.
         {% else %}
           You've answered every date. You can change your answers until the GM decides.
         {% endif %}
@@ -91,14 +107,16 @@
         </thead>
         <tbody>
           {% for opt in options %}
-            <tr class="{% if opt.is_decided %}is-decided{% elif opt.is_best %}is-best{% endif %}">
+            <tr class="{% if opt.is_decided %}is-decided{% elif opt.is_best %}is-best{% elif opt.when.is_past %}is-past{% endif %}">
               <th scope="row" class="vote-grid__date">
                 <time datetime="{{ opt.when.iso }}">{{ opt.when.date }}</time>
                 <span class="muted">{{ opt.when.time }}</span>
                 {% if opt.is_decided %}<span class="badge">Chosen</span>
                 {% elif opt.is_best and poll.status == "open" %}<span class="badge badge--soft">Most yes</span>{% endif %}
               </th>
-              {% if can_vote %}
+              {% if can_vote and opt.when.is_past %}
+                <td class="muted small">Past</td>
+              {% elif can_vote %}
                 <td>
                   <div class="vote-buttons" role="group" aria-label="Your answer for {{ opt.when.full }}">
                     {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
@@ -127,12 +145,14 @@
               {% endfor %}
               {% if can_manage and poll.status == "open" %}
                 <td>
+                  {% if not opt.when.is_past %}
                   <form method="post" action="/schedule/{{ poll.id }}/decide"
                         data-confirm="Pick {{ opt.when.full }}? This creates the game session and closes the poll."
                         onsubmit="return confirm(this.dataset.confirm)">
                     <input type="hidden" name="option_id" value="{{ opt.id }}">
                     <button type="submit" class="button button--secondary button--small">Pick</button>
                   </form>
+                  {% endif %}
                 </td>
               {% endif %}
             </tr>

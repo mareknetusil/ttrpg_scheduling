@@ -6,8 +6,9 @@
                    banner_version (set when there's a banner) }, the user's non-archived campaigns
      sessions      list of { id, campaign_id, campaign_name, number, title, when: When }: planned
                    upcoming game sessions in those campaigns, soonest first (at most 10)
-     polls         list of { id, campaign_id, campaign_name, title, status, option_count,
-                   my_vote_count }: open scheduling polls in those campaigns #}
+     polls         list of { id, campaign_id, campaign_name, title, status, voting_open, option_count,
+                   my_vote_count }: open scheduling polls in those campaigns; the two
+                   counts cover only dates still in the future #}
 
 {% block title %}Campaigns · TTRPG Scheduling{% endblock %}
 
@@ -43,7 +44,7 @@
           {% for p in polls %}
             <li>
               <a href="/schedule/{{ p.id }}"><strong>{{ p.title }}</strong></a>
-              {% if p.my_vote_count < p.option_count %}<span class="badge">Vote</span>{% endif %}
+              {% if not p.voting_open %}<span class="muted small">voting closed</span>{% elif p.my_vote_count < p.option_count %}<span class="badge">Vote</span>{% endif %}
               <span class="muted">{{ p.campaign_name }}</span>
             </li>
           {% endfor %}

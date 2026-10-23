@@ -192,6 +192,8 @@ pub struct Resp {
     pub status: StatusCode,
     pub location: Option<String>,
     pub hx_redirect: Option<String>,
+    /// The `HX-Refresh: true` header (htmx reloads the page)
+    pub hx_refresh: bool,
     pub body: String,
 }
 
@@ -204,11 +206,13 @@ impl Resp {
         };
         let location = header("location");
         let hx_redirect = header("hx-redirect");
+        let hx_refresh = header("hx-refresh").as_deref() == Some("true");
         let status = r.status();
         Resp {
             status,
             location,
             hx_redirect,
+            hx_refresh,
             body: r.text().await.unwrap(),
         }
     }

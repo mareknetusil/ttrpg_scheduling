@@ -124,11 +124,9 @@ async fn vote_and_decide(db: SqlitePool) {
     assert_eq!(r.ok().text("h1"), "Session 1");
     assert_eq!(r.texts("#attendance .chip"), ["Mark", "Nina"]);
 
-    // decided: no more votes or decisions, the poll page says so
-    assert_eq!(
-        vote(&mark, poll, opts[1], "yes").await.status,
-        StatusCode::NOT_FOUND
-    );
+    // decided: no more votes or decisions, the poll page says so. A vote from a page loaded
+    // before the decision makes htmx reload it.
+    assert!(vote(&mark, poll, opts[1], "yes").await.ok().hx_refresh);
     let second = opts[1].to_string();
     assert_eq!(
         gm.post(&decide, &[("option_id", &second)]).await.redirect(),
@@ -267,5 +265,104 @@ async fn regular_slots_fill_a_new_poll(db: SqlitePool) {
     assert_eq!(
         gm.delete(&format!("{path}/{pattern}")).await.status,
         StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test]
+async fn deadline_closes_voting(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("deadline", "2020-01-01T20:00"),
+                ("options", "2030-01-10T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opt = option_ids(&app, poll).await[0];
+
+    let r = mark.get(&format!("/schedule/{poll}")).await;
+    assert!(
+        r.ok()
+            .text(".page-head .muted")
+            .contains("Voting closed on")
+    );
+    assert!(r.text(".alert").contains("Waiting for the GM"));
+    assert!(!r.has(".vote-btn"));
+    let r = vote(&mark, poll, opt, "yes").await;
+    assert!(r.ok().hx_refresh);
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM schedule_votes").await, 0);
+    assert_eq!(
+        mark.get("/").await.text(".item-list .muted.small"),
+        "voting closed"
+    );
+    assert!(
+        mark.get(&format!("/campaigns/{id}"))
+            .await
+            .body
+            .contains("voting closed")
+    );
+
+    // the GM can still pick a date
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert!(r.ok().text(".alert").contains("Pick a date below"));
+    assert_eq!(r.count("form[action$='/decide']"), 1);
+}
+
+#[sqlx::test]
+async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2020-01-10T18:00"),
+                ("options", "2030-01-10T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opts = option_ids(&app, poll).await;
+
+    let r = mark.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.ok().text("tr.is-past td.muted"), "Past");
+    assert_eq!(r.count(".vote-btn"), 3, "only the future date");
+    assert_eq!(
+        r.text("#vote-grid > p"),
+        "You haven't answered 1 of 1 date yet."
+    );
+    assert!(vote(&mark, poll, opts[0], "yes").await.ok().hx_refresh);
+    // the dashboard badge only counts future dates
+    vote(&mark, poll, opts[1], "yes").await.ok();
+    assert!(!mark.get("/").await.has(".item-list .badge"));
+
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(
+        r.count("form[action$='/decide']"),
+        1,
+        "no Pick on the past date"
+    );
+    // "Most yes" ignores past dates
+    assert!(!r.has("tr.is-past .badge"));
+
+    // all dates past
+    let old = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S0"), ("options", "2020-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let r = gm.get(&format!("/schedule/{old}")).await;
+    assert!(
+        r.ok()
+            .text(".alert")
+            .contains("All the proposed dates have passed.")
     );
 }

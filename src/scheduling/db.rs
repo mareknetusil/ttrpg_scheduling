@@ -68,8 +68,9 @@ pub async fn votes(db: &SqlitePool, poll_id: i64) -> Result<Vec<VoteRow>, sqlx::
     .await
 }
 
-/// Records a vote, replacing an earlier one. Returns false if the option isn't part of this poll
-/// or the poll isn't open, so a crafted request can't vote on another poll's option.
+/// Records a vote, replacing an earlier one. Returns false if the option isn't part of this poll,
+/// the poll isn't open, its deadline has passed or the option's date has passed (so a crafted
+/// request can't vote on another poll's option either).
 pub async fn set_vote(
     db: &SqlitePool,
     poll_id: i64,
@@ -81,6 +82,8 @@ pub async fn set_vote(
         "INSERT INTO schedule_votes (option_id, user_id, answer)
          SELECT o.id, ?, ? FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id
          WHERE o.id = ? AND p.id = ? AND p.status = 'open'
+           AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+           AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          ON CONFLICT (option_id, user_id) DO UPDATE
          SET answer = excluded.answer, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
         user_id,
@@ -165,9 +168,13 @@ pub async fn for_campaign(
         PollSummary,
         r#"SELECT p.id AS "id!", p.campaign_id, c.name AS campaign_name, p.title,
                   p.status AS "status: PollStatus",
-                  (SELECT COUNT(*) FROM schedule_options WHERE poll_id = p.id) AS "option_count!: i64",
+                  (p.status = 'open' AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+                    AS "voting_open!: bool",
+                  (SELECT COUNT(*) FROM schedule_options
+                   WHERE poll_id = p.id AND starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "option_count!: i64",
                   (SELECT COUNT(*) FROM schedule_votes AS v JOIN schedule_options AS o ON o.id = v.option_id
-                   WHERE o.poll_id = p.id AND v.user_id = ?) AS "my_vote_count!: i64"
+                   WHERE o.poll_id = p.id AND v.user_id = ?
+                     AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "my_vote_count!: i64"
            FROM schedule_polls AS p JOIN campaigns AS c ON c.id = p.campaign_id
            WHERE p.campaign_id = ?
            ORDER BY p.status = 'open' DESC, p.created_at DESC
@@ -186,9 +193,13 @@ pub async fn open_for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<PollSumm
         PollSummary,
         r#"SELECT p.id AS "id!", p.campaign_id, c.name AS campaign_name, p.title,
                   p.status AS "status: PollStatus",
-                  (SELECT COUNT(*) FROM schedule_options WHERE poll_id = p.id) AS "option_count!: i64",
+                  (p.status = 'open' AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+                    AS "voting_open!: bool",
+                  (SELECT COUNT(*) FROM schedule_options
+                   WHERE poll_id = p.id AND starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "option_count!: i64",
                   (SELECT COUNT(*) FROM schedule_votes AS v JOIN schedule_options AS o ON o.id = v.option_id
-                   WHERE o.poll_id = p.id AND v.user_id = ?) AS "my_vote_count!: i64"
+                   WHERE o.poll_id = p.id AND v.user_id = ?
+                     AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "my_vote_count!: i64"
            FROM schedule_polls AS p
            JOIN campaigns AS c ON c.id = p.campaign_id
            JOIN campaign_members AS m ON m.campaign_id = p.campaign_id AND m.user_id = ?

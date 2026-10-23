@@ -221,6 +221,13 @@ poll_votes
 - Poll results are hidden from a member until they vote (to avoid bandwagoning), then shown with
   voter names; closed polls show results to everyone. Polls with `closes_at` in the past count as
   closed without a write.
+- A scheduling poll's deadline closes voting: after `deadline_at` the poll stays `open` (the GM
+  can still pick a date) but members can't vote, again without a write. Dates already in the
+  past can't be voted on or picked, and don't count for "Most yes", the "Vote" badge or "you
+  haven't answered". A vote refused because the poll changed since the page loaded answers with
+  `HX-Refresh` so the page reloads and shows why.
+- htmx failures are reported by a small handler in `base.html` (a notice with "Reload"); a
+  request whose login expired is sent to `/login` instead of swapping the login page in.
 - Votes count only for current members: the grid shows one column per member, and attendance
   is pre-filled only with yes-voters who are still members.
 
@@ -321,7 +328,7 @@ POST /campaigns/{id}/schedule
 GET  /campaigns/{id}/schedule/patterns, POST …/patterns              # regular slots (GM/admin)
 DELETE /campaigns/{id}/schedule/patterns/{pattern_id}                # htmx
 GET  /schedule/{poll_id}                               # voting grid
-PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid
+PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid or HX-Refresh
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session
 POST /schedule/{poll_id}/cancel
 
@@ -553,5 +560,9 @@ class of bug, which the compiler can't.
 - iCal feed per user (`/calendar/<token>.ics`) so decided sessions appear in phone calendars.
 - Discord webhook notification when a poll opens or a date is decided.
 - Reminders before the vote deadline.
+- Scheduling polls by day, not only by exact start time: a candidate can be a whole day
+  ("free any time on Sat 24 Oct"), and a member can answer for the day, optionally with a time
+  window or a note ("from 19:00"). Today every option is one `starts_at`, which makes "any time
+  that day" impossible to express. Picking a day-option would then ask the GM for the start time.
 - File/image uploads for campaign pages (maps, handouts).
 - Embedding templates/static into the binary for a single-file deploy.

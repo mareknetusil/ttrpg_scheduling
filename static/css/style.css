@@ -222,6 +222,21 @@ a.button { text-decoration: none; }
   color: var(--success);
   background: var(--success-soft);
 }
+/* htmx failure notice (base.html) */
+.toast {
+  position: fixed;
+  inset-inline: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 10;
+  max-width: 36rem;
+  margin-inline: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.toast[hidden] { display: none; }
+.toast span { flex: 1; }
 
 /* ---------- Dashboard ---------- */
 .page-head {
@@ -574,6 +589,7 @@ input[type="datetime-local"] {
 .vote-grid__member { max-width: 6rem; overflow: hidden; text-overflow: ellipsis; }
 .vote-grid tr.is-best .vote-grid__date { box-shadow: inset 3px 0 0 var(--success); }
 .vote-grid tr.is-decided td, .vote-grid tr.is-decided .vote-grid__date { background: var(--accent-soft); }
+.vote-grid tr.is-past > * { opacity: 0.55; }
 .vote-grid form { margin: 0; }
 
 .vote-buttons { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

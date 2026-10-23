@@ -366,3 +366,45 @@ async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
             .contains("All the proposed dates have passed.")
     );
 }
+
+#[sqlx::test]
+async fn waiting_on_and_no_conflicts(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, nina) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opts = option_ids(&app, poll).await;
+
+    let r = mark.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.ok().text(".waiting-on"), "Waiting on: Gina, Mark, Nina");
+
+    vote(&gm, poll, opts[0], "yes").await.ok();
+    vote(&gm, poll, opts[1], "yes").await.ok();
+    vote(&mark, poll, opts[0], "maybe").await.ok();
+    let r = vote(&nina, poll, opts[0], "maybe").await;
+    assert_eq!(
+        r.ok().text(".waiting-on"),
+        "Waiting on: Mark (1 left), Nina (1 left)"
+    );
+    // everyone answered the first date, nobody said no
+    assert_eq!(
+        r.texts("tbody tr:first-child .badge"),
+        ["No one said no", "Most yes"]
+    );
+
+    vote(&mark, poll, opts[1], "yes").await.ok();
+    let r = vote(&nina, poll, opts[1], "no").await;
+    assert_eq!(r.ok().text(".waiting-on"), "Everyone has answered.");
+    // the second date has more yes but also a "no": the markers point at different dates
+    assert_eq!(r.texts("tbody tr:first-child .badge"), ["No one said no"]);
+    assert_eq!(r.texts("tbody tr:nth-child(2) .badge"), ["Most yes"]);
+}

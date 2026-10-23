@@ -497,6 +497,8 @@ a.button { text-decoration: none; }
 .empty p { margin: var(--space-1) 0; }
 
 .badge--soft { background: var(--success-soft); color: var(--success); }
+.badge--success { background: var(--success); color: var(--surface); }
+.waiting-on { margin-top: calc(-1 * var(--space-2)); }
 .button--small { padding: var(--space-1) var(--space-2); font-size: 0.875rem; }
 
 .visually-hidden {

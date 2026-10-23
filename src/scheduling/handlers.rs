@@ -280,7 +280,17 @@ struct OptionView {
     cells: Vec<Option<Answer>>,
     mine: Option<Answer>,
     is_best: bool,
+    /// Every member answered, and nobody said no
+    no_conflicts: bool,
     is_decided: bool,
+}
+
+/// A member who hasn't answered every upcoming date yet.
+#[derive(serde::Serialize)]
+struct WaitingOn {
+    display_name: String,
+    /// How many upcoming dates they haven't answered
+    unanswered: usize,
 }
 
 async fn poll_context(
@@ -312,6 +322,10 @@ async fn poll_context(
                 maybe: count(Answer::Maybe),
                 no: count(Answer::No),
                 mine: answers.get(&(o.id, user.id)).copied(),
+                no_conflicts: !members.is_empty()
+                    && cells
+                        .iter()
+                        .all(|c| matches!(c, Some(Answer::Yes | Answer::Maybe))),
                 cells,
                 is_best: false,
                 is_decided: poll.decided_option_id == Some(o.id),
@@ -330,7 +344,22 @@ async fn poll_context(
             o.is_best = !o.when.is_past && (o.yes, o.maybe) == best;
         }
     }
+    for o in &mut options {
+        o.no_conflicts = o.no_conflicts && !o.when.is_past;
+    }
     let upcoming = options.iter().filter(|o| !o.when.is_past).count();
+    let waiting_on: Vec<WaitingOn> = members
+        .iter()
+        .enumerate()
+        .map(|(i, m)| WaitingOn {
+            display_name: m.display_name.clone(),
+            unanswered: options
+                .iter()
+                .filter(|o| !o.when.is_past && o.cells[i].is_none())
+                .count(),
+        })
+        .filter(|w| w.unanswered > 0)
+        .collect();
     let unanswered = options
         .iter()
         .filter(|o| !o.when.is_past && o.mine.is_none())
@@ -347,5 +376,6 @@ async fn poll_context(
         options => Serde(&options),
         upcoming,
         unanswered,
+        waiting_on => Serde(&waiting_on),
     })
 }

@@ -11,10 +11,13 @@
      description_html  sanitized HTML (may be empty)
      members           list of { user_id, username, display_name, joined_at }: grid columns
      options           list of { id, when: When, yes, maybe, no, cells: [answer?] (one per member,
-                       in members order), mine: answer?, is_best, is_decided }; options whose
-                       when.is_past can't be voted on or picked
+                       in members order), mine: answer?, is_best, no_conflicts (every member
+                       answered and nobody said no), is_decided }; options whose when.is_past
+                       can't be voted on or picked
      upcoming          number of options still in the future
      unanswered        number of upcoming options the current user hasn't answered
+     waiting_on        list of { display_name, unanswered }: members who haven't answered every
+                       upcoming option
    When = { iso, date, date_long, time, full, input, is_past }; answer = "yes" | "maybe" | "no".
 
    Requests:
@@ -90,6 +93,18 @@
         {% endif %}
       </p>
     {% endif %}
+    {% if poll.voting_open and upcoming %}
+      <p class="small waiting-on">
+        {% if waiting_on %}
+          <strong>Waiting on:</strong>
+          {% for w in waiting_on %}
+            {{ w.display_name }}{% if w.unanswered < upcoming %} <span class="muted">({{ w.unanswered }} left)</span>{% endif %}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        {% else %}
+          <strong>Everyone has answered.</strong>
+        {% endif %}
+      </p>
+    {% endif %}
     <div class="vote-grid-wrap">
       <table class="vote-grid">
         <thead>
@@ -112,7 +127,10 @@
                 <time datetime="{{ opt.when.iso }}">{{ opt.when.date }}</time>
                 <span class="muted">{{ opt.when.time }}</span>
                 {% if opt.is_decided %}<span class="badge">Chosen</span>
-                {% elif opt.is_best and poll.status == "open" %}<span class="badge badge--soft">Most yes</span>{% endif %}
+                {% else %}
+                  {% if opt.no_conflicts and poll.status == "open" %}<span class="badge badge--success">No one said no</span>{% endif %}
+                  {% if opt.is_best and poll.status == "open" %}<span class="badge badge--soft">Most yes</span>{% endif %}
+                {% endif %}
               </th>
               {% if can_vote and opt.when.is_past %}
                 <td class="muted small">Past</td>

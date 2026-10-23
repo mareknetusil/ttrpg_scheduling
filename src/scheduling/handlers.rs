@@ -13,6 +13,7 @@ use crate::{
         model::{Access, Campaign},
     },
     error::AppError,
+    game_sessions::{self, model::SessionView},
     markdown,
     time::When,
 };
@@ -301,6 +302,21 @@ pub async fn cancel(
     Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
 }
 
+/// Undo a decision (GM). If the session can't be removed any more, the poll page simply shows it
+/// again (the Reopen button is only offered while it can).
+pub async fn reopen(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+) -> Result<Response, AppError> {
+    let (_, _, access) = load_poll(&state, poll_id, &user).await?;
+    if !access.can_manage() {
+        return Err(AppError::NotFound);
+    }
+    db::reopen(&state.db, poll_id).await?;
+    Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
+}
+
 pub async fn patterns_page(
     State(state): State<Arc<AppState>>,
     user: CurrentUser,
@@ -488,6 +504,16 @@ async fn poll_context(
         })
         .filter(|w| w.unanswered > 0)
         .collect();
+    // A decided poll shows the game session as it is now (the GM may have moved or cancelled it).
+    let mut session = None;
+    let mut can_reopen = false;
+    if let Some(session_id) = poll.game_session_id
+        && let Some(s) = game_sessions::db::get(&state.db, session_id).await?
+    {
+        can_reopen = access.can_manage()
+            && db::session_untouched(&mut *state.db.acquire().await?, session_id).await?;
+        session = Some(SessionView::new(&s, state.tz));
+    }
     let unanswered = options
         .iter()
         .filter(|o| !o.when.is_past && o.mine.is_none())
@@ -505,5 +531,7 @@ async fn poll_context(
         upcoming,
         unanswered,
         waiting_on => Serde(&waiting_on),
+        session => Serde(&session),
+        can_reopen,
     })
 }

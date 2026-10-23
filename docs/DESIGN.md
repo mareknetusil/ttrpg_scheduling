@@ -217,7 +217,11 @@ poll_votes
 - Sessions are numbered by date (cancelled ones included): `game_sessions::db::renumber` runs
   in the same transaction after every insert (poll decision, direct add) and date change, so a
   session backfilled for an earlier date takes its chronological number and later ones shift.
-  Sessions are never deleted; the GM marks them cancelled.
+  Sessions are never deleted; the GM marks them cancelled. One exception: reopening a decided
+  poll (`POST /schedule/{id}/reopen`, GM) deletes the session the decision created, but only while
+  it's untouched (planned, no entries, comments or polls), so a wrong click or a date that fell
+  through can be undone. Otherwise the GM moves or cancels the session on its page; the poll
+  page always shows the session as it is now.
 - Poll results are hidden from a member until they vote (to avoid bandwagoning), then shown with
   voter names; closed polls show results to everyone. Polls with `closes_at` in the past count as
   closed without a write.
@@ -329,6 +333,7 @@ GET  /campaigns/{id}/schedule/patterns, POST …/patterns              # regular
 DELETE /campaigns/{id}/schedule/patterns/{pattern_id}                # htmx
 GET  /schedule/{poll_id}                               # voting grid
 GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   # JSON dates of a regular slot (GM); the poll form's "Add"
+POST /schedule/{poll_id}/reopen                       # undo a decision (GM); deletes the untouched session
 GET  /schedule/{poll_id}/edit, POST /schedule/{poll_id}   # edit an open poll (GM); dates matched by time keep their votes
 PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid or HX-Refresh
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session

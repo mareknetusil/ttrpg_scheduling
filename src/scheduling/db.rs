@@ -1,7 +1,7 @@
 use super::model::{
     Answer, NewPattern, NewPoll, OptionRow, PatternRow, Poll, PollStatus, PollSummary, VoteRow,
 };
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnection, SqlitePool};
 
 pub async fn create(
     db: &SqlitePool,
@@ -208,6 +208,65 @@ pub async fn decide(
     crate::game_sessions::db::renumber(&mut tx, session.campaign_id).await?;
     tx.commit().await?;
     Ok(Some(session.id))
+}
+
+/// Can a decided poll be reopened? Only while the game session it created is untouched: still
+/// planned, with no entries, comments or polls. Attendance doesn't count (the decision filled it).
+pub async fn session_untouched(
+    conn: &mut SqliteConnection,
+    session_id: i64,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT (status = 'planned'
+                   AND NOT EXISTS (SELECT 1 FROM game_session_entries WHERE game_session_id = s.id)
+                   AND NOT EXISTS (SELECT 1 FROM comments WHERE game_session_id = s.id)
+                   AND NOT EXISTS (SELECT 1 FROM polls WHERE game_session_id = s.id)) AS "ok!: bool"
+           FROM game_sessions AS s WHERE s.id = ?"#,
+        session_id
+    )
+    .fetch_optional(conn)
+    .await
+    .map(|ok| ok.unwrap_or(false))
+}
+
+/// Undoes a decision (a wrong click, or the date fell through): the poll is open again, with its
+/// votes, and the game session the decision created is deleted. The one exception to "sessions
+/// are never deleted", allowed only while `session_untouched`. Returns false (and changes
+/// nothing) if the poll isn't decided or the session isn't untouched.
+pub async fn reopen(db: &SqlitePool, poll_id: i64) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let Some(row) = sqlx::query!(
+        r#"SELECT game_session_id AS "session_id!", campaign_id FROM schedule_polls
+           WHERE id = ? AND status = 'decided'"#,
+        poll_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(false);
+    };
+    if !session_untouched(&mut tx, row.session_id).await? {
+        return Ok(false);
+    }
+    sqlx::query!(
+        "UPDATE schedule_polls SET status = 'open', decided_option_id = NULL, game_session_id = NULL
+         WHERE id = ?",
+        poll_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM game_session_attendance WHERE game_session_id = ?",
+        row.session_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!("DELETE FROM game_sessions WHERE id = ?", row.session_id)
+        .execute(&mut *tx)
+        .await?;
+    crate::game_sessions::db::renumber(&mut tx, row.campaign_id).await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// Returns false if the poll wasn't open.

@@ -222,6 +222,8 @@ a.button { text-decoration: none; }
   color: var(--success);
   background: var(--success-soft);
 }
+.decided p { margin: 0; }
+.decided form { margin-top: var(--space-1); }
 /* htmx failure notice (base.html) */
 .toast {
   position: fixed;

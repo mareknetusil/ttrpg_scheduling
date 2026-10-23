@@ -133,7 +133,7 @@ async fn vote_and_decide(db: SqlitePool) {
         format!("/schedule/{poll}")
     );
     let r = mark.get(&format!("/schedule/{poll}")).await;
-    assert!(r.text(".alert--success").contains("Thu 10 Jan 2030, 18:00"));
+    assert!(r.text(".decided").contains("Thu 10 Jan 2030, 18:00"));
     assert!(!r.has(".vote-btn"));
     assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 1);
 
@@ -565,5 +565,78 @@ async fn comments_on_a_poll(db: SqlitePool) {
             .await
             .status,
         StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test]
+async fn reopen_a_decided_poll(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opts = option_ids(&app, poll).await;
+    vote(&mark, poll, opts[0], "yes").await.ok();
+    let decide = format!("/schedule/{poll}/decide");
+    let reopen = format!("/schedule/{poll}/reopen");
+    let page = format!("/schedule/{poll}");
+    gm.post(&decide, &[("option_id", &opts[0].to_string())])
+        .await
+        .redirect_id("/sessions/");
+
+    // only the GM gets the button
+    assert!(gm.get(&page).await.ok().has("form[action$='/reopen']"));
+    assert!(!mark.get(&page).await.has("form[action$='/reopen']"));
+    assert_eq!(mark.post(&reopen, &[]).await.status, StatusCode::NOT_FOUND);
+
+    // reopening deletes the session and keeps the votes
+    assert_eq!(gm.post(&reopen, &[]).await.redirect(), page);
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 0);
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM game_session_attendance")
+            .await,
+        0
+    );
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM schedule_votes").await, 1);
+    let r = mark.get(&page).await;
+    assert!(r.ok().has(".vote-btn"));
+    assert!(!r.has(".decided"));
+
+    // decide the other date; once the session has a comment it can't be undone any more
+    let session = gm
+        .post(&decide, &[("option_id", &opts[1].to_string())])
+        .await
+        .redirect_id("/sessions/");
+    assert_eq!(app.scalar("SELECT number FROM game_sessions").await, 1);
+    mark.post(
+        &format!("/sessions/{session}/comments"),
+        &[("body_md", "See you")],
+    )
+    .await
+    .ok();
+    let r = gm.get(&page).await;
+    assert!(!r.has("form[action$='/reopen']"));
+    assert!(r.text(".decided").contains("edit the game session"));
+    gm.post(&reopen, &[]).await.redirect();
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 1);
+
+    // the banner follows the session, not the option that was picked
+    sqlx::query("UPDATE game_sessions SET status = 'cancelled'")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    assert!(
+        mark.get(&page)
+            .await
+            .text(".decided")
+            .contains("The game session for this poll was cancelled.")
     );
 }

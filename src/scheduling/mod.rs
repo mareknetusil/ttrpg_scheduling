@@ -34,4 +34,5 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{poll_id}/options/{option_id}/vote", put(handlers::vote))
         .route("/{poll_id}/decide", post(handlers::decide))
         .route("/{poll_id}/cancel", post(handlers::cancel))
+        .route("/{poll_id}/reopen", post(handlers::reopen))
 }

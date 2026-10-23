@@ -16,6 +16,9 @@
                        can't be voted on or picked
      upcoming          number of options still in the future
      unanswered        number of upcoming options the current user hasn't answered
+     comments          list of comment views (see comments/_comment.html) on this poll; full page
+                       only, not in the `grid` fragment
+     can_comment       bool: a member
      waiting_on        list of { display_name, unanswered }: members who haven't answered every
                        upcoming option
    When = { iso, date, date_long, time, full, input, is_past }; answer = "yes" | "maybe" | "no".
@@ -27,7 +30,8 @@
      POST /schedule/{poll_id}/decide                     field option_id; redirects to the new
                                                          game session
      POST /schedule/{poll_id}/cancel
-     GET  /schedule/{poll_id}/edit                       edit form (GM, open polls) #}
+     GET  /schedule/{poll_id}/edit                       edit form (GM, open polls)
+     POST /schedule/{poll_id}/comments                   htmx (see comments/_section.html) #}
 
 {% block title %}{{ poll.title }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -185,4 +189,7 @@
   </div>
   {% endblock %}
 </section>
+
+{% set comment_post_url = "/schedule/" ~ poll.id ~ "/comments" %}
+{% include "comments/_section.html" %}
 {% endblock %}

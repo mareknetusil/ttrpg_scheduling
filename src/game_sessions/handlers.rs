@@ -300,7 +300,7 @@ async fn render_session(
         .map(|e| EntryView::new(e, can_edit_entry(e, user, access), state.tz))
         .collect();
     let comments =
-        crate::comments::views(state, campaign.id, Some(session.id), user, access).await?;
+        crate::comments::views(state, campaign.id, Some(session.id), None, user, access).await?;
     let questions = crate::polls::views(state, campaign.id, Some(session.id), user, access).await?;
     state.render(
         "sessions/show.html",

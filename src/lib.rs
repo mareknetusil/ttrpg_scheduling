@@ -161,6 +161,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/campaigns/{id}", game_sessions::campaign_router())
         .nest("/campaigns/{id}", comments::campaign_router())
         .nest("/sessions/{id}", comments::session_router())
+        .nest("/schedule/{id}", comments::poll_router())
         .nest("/comments", comments::router())
         .nest("/campaigns/{id}/polls", polls::campaign_router())
         .nest("/polls", polls::router())

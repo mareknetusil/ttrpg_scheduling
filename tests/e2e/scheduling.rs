@@ -506,3 +506,43 @@ async fn edit_an_open_poll(db: SqlitePool) {
     assert_eq!(gm.get(&save).await.text("h1"), "Session one");
     assert!(!gm.get(&save).await.has("a[href$='/edit']"));
 }
+
+#[sqlx::test]
+async fn comments_on_a_poll(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S1"), ("options", "2030-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let post = format!("/schedule/{poll}/comments");
+    let r = mark
+        .post(&post, &[("body_md", "Only if we start at **19:00**")])
+        .await;
+    assert!(r.ok().body.contains("<strong>19:00</strong>"));
+
+    let page = gm.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(page.ok().count("#comment-list .comment"), 1);
+    assert_eq!(page.attr("#comments form", "hx-post"), Some(post.clone()));
+    // not on the campaign page
+    let r = gm.get(&format!("/campaigns/{id}")).await;
+    assert_eq!(r.ok().count("#comment-list .comment"), 0);
+    // a vote answers with the grid only, without the comments
+    let opt = option_ids(&app, poll).await[0];
+    assert!(!vote(&mark, poll, opt, "yes").await.ok().has("#comments"));
+
+    let olga = app.user("olga").await;
+    assert_eq!(
+        olga.post(&post, &[("body_md", "hi")]).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        gm.post("/schedule/9999/comments", &[("body_md", "hi")])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+}

@@ -28,7 +28,7 @@ Status: v1.0 (2026-10-21). Progress: M0–M11 done.
 | R4 | Every game session shows in the campaign history with date and attendees. The GM can edit attendance. | Attendance defaults to the "yes" voters (all members for a session added directly). |
 | R5 | A game session can hold several content entries (recap, notes, loot, ...). | |
 | R6 | A campaign has a rich description and extra GM-written pages. | Wiki-lite. |
-| R7 | Members can comment on campaigns and game sessions. | |
+| R7 | Members can comment on campaigns, game sessions and scheduling polls. | |
 | R8 | The GM can create polls for a campaign or a specific game session. | Single or multiple choice. |
 | R9 | GM and player content is Markdown, rendered safely. | Sanitized HTML. |
 
@@ -173,8 +173,8 @@ game_session_entries                   -- R5
   author_id, created_at, updated_at
 
 comments                               -- R7
-  id, campaign_id, game_session_id NULL, author_id, body_md,
-  created_at, edited_at NULL           -- deleting removes the row
+  id, campaign_id, game_session_id NULL, schedule_poll_id NULL, author_id, body_md,
+  created_at, edited_at NULL           -- deleting removes the row; at most one of the two ids
 
 polls                                  -- R8
   id, campaign_id, game_session_id NULL, question, description_md,
@@ -340,7 +340,8 @@ POST /sessions/{id}/entries                            # add an entry (members)
 GET  /entries/{id}/edit, POST /entries/{id}            # edit an entry (author or GM/admin)
 DELETE /entries/{id}                                   # htmx
 
-POST /campaigns/{id}/comments, POST /sessions/{id}/comments   # htmx, field body_md; (fragment) the new comment
+POST /campaigns/{id}/comments, POST /sessions/{id}/comments, POST /schedule/{id}/comments
+                                                      # htmx, field body_md; (fragment) the new comment
 GET  /comments/{id}/edit                               # (fragment) inline edit form (author)
 GET  /comments/{id}, PUT /comments/{id}                # (fragment) the comment (cancel / save)
 DELETE /comments/{id}                                  # htmx (author, or GM/admin)

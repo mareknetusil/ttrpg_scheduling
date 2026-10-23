@@ -7,7 +7,7 @@ use crate::{
     auth::extractor::CurrentUser,
     campaigns::{load_for, model::Access},
     error::AppError,
-    game_sessions,
+    game_sessions, scheduling,
 };
 use axum::{
     extract::{Form, Path, State},
@@ -17,15 +17,17 @@ use axum::{
 use minijinja::{context, value::Serde};
 use std::sync::Arc;
 
-/// The comments of a campaign or game session, prepared for the page that shows them.
+/// The comments of a campaign, game session or scheduling poll, prepared for the page that shows
+/// them.
 pub async fn views(
     state: &AppState,
     campaign_id: i64,
     session_id: Option<i64>,
+    poll_id: Option<i64>,
     user: &CurrentUser,
     access: &Access,
 ) -> Result<Vec<CommentView>, AppError> {
-    Ok(db::list(&state.db, campaign_id, session_id)
+    Ok(db::list(&state.db, campaign_id, session_id, poll_id)
         .await?
         .iter()
         .map(|c| view(c, user, access, state))
@@ -55,7 +57,7 @@ pub async fn create_for_campaign(
     Form(form): Form<CommentForm>,
 ) -> Result<Response, AppError> {
     let (_, access) = load_for(&state.db, id, &user).await?;
-    create(&state, &user, &access, id, None, &form).await
+    create(&state, &user, &access, id, None, None, &form).await
 }
 
 pub async fn create_for_session(
@@ -74,6 +76,29 @@ pub async fn create_for_session(
         &access,
         session.campaign_id,
         Some(session_id),
+        None,
+        &form,
+    )
+    .await
+}
+
+pub async fn create_for_poll(
+    State(state): State<Arc<AppState>>,
+    user: CurrentUser,
+    Path(poll_id): Path<i64>,
+    Form(form): Form<CommentForm>,
+) -> Result<Response, AppError> {
+    let poll = scheduling::db::get(&state.db, poll_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let (_, access) = load_for(&state.db, poll.campaign_id, &user).await?;
+    create(
+        &state,
+        &user,
+        &access,
+        poll.campaign_id,
+        None,
+        Some(poll_id),
         &form,
     )
     .await
@@ -86,6 +111,7 @@ async fn create(
     access: &Access,
     campaign_id: i64,
     session_id: Option<i64>,
+    poll_id: Option<i64>,
     form: &CommentForm,
 ) -> Result<Response, AppError> {
     if access.role.is_none() {
@@ -94,7 +120,7 @@ async fn create(
     let Some(body) = clean(form) else {
         return Ok(StatusCode::UNPROCESSABLE_ENTITY.into_response());
     };
-    let id = db::create(&state.db, campaign_id, session_id, user.id, body).await?;
+    let id = db::create(&state.db, campaign_id, session_id, poll_id, user.id, body).await?;
     let comment = db::get(&state.db, id).await?.ok_or(AppError::NotFound)?;
     Ok(render_comment(state, &view(&comment, user, access, state))?.into_response())
 }

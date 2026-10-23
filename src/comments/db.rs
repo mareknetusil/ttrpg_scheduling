@@ -1,11 +1,13 @@
 use super::model::Comment;
 use sqlx::sqlite::SqlitePool;
 
-/// Comments of a campaign (`session_id = None`) or of one game session, oldest first.
+/// Comments of a campaign (both ids `None`), of one game session or of one scheduling poll,
+/// oldest first.
 pub async fn list(
     db: &SqlitePool,
     campaign_id: i64,
     session_id: Option<i64>,
+    poll_id: Option<i64>,
 ) -> Result<Vec<Comment>, sqlx::Error> {
     // `IS` compares NULL as a value, so one query covers both cases.
     sqlx::query_as!(
@@ -13,10 +15,11 @@ pub async fn list(
         "SELECT c.id, c.campaign_id, c.author_id, u.display_name AS author_name,
                 c.body_md, c.created_at, c.edited_at
          FROM comments AS c JOIN users AS u ON u.id = c.author_id
-         WHERE c.campaign_id = ? AND c.game_session_id IS ?
+         WHERE c.campaign_id = ? AND c.game_session_id IS ? AND c.schedule_poll_id IS ?
          ORDER BY c.created_at, c.id",
         campaign_id,
-        session_id
+        session_id,
+        poll_id
     )
     .fetch_all(db)
     .await
@@ -39,13 +42,16 @@ pub async fn create(
     db: &SqlitePool,
     campaign_id: i64,
     session_id: Option<i64>,
+    poll_id: Option<i64>,
     author_id: i64,
     body_md: &str,
 ) -> Result<i64, sqlx::Error> {
     let id = sqlx::query!(
-        "INSERT INTO comments (campaign_id, game_session_id, author_id, body_md) VALUES (?, ?, ?, ?)",
+        "INSERT INTO comments (campaign_id, game_session_id, schedule_poll_id, author_id, body_md)
+         VALUES (?, ?, ?, ?, ?)",
         campaign_id,
         session_id,
+        poll_id,
         author_id,
         body_md
     )

@@ -1,4 +1,4 @@
-//! Comments (R7) on a campaign or on one of its game sessions. Posting, editing and deleting
+//! Comments (R7) on a campaign, on one of its game sessions or on a scheduling poll. Posting, editing and deleting
 //! go through htmx and answer with HTML fragments.
 
 pub mod db;
@@ -34,4 +34,9 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
 /// `POST /sessions/{id}/comments`
 pub fn session_router() -> Router<Arc<AppState>> {
     Router::new().route("/comments", post(handlers::create_for_session))
+}
+
+/// `POST /schedule/{id}/comments`
+pub fn poll_router() -> Router<Arc<AppState>> {
+    Router::new().route("/comments", post(handlers::create_for_poll))
 }

@@ -91,7 +91,7 @@ pub async fn show(
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     let pages = crate::pages::db::list(&state.db, id).await?;
     let polls = crate::scheduling::db::for_campaign(&state.db, id, user.id).await?;
-    let comments = crate::comments::views(&state, id, None, &user, &access).await?;
+    let comments = crate::comments::views(&state, id, None, None, &user, &access).await?;
     let questions = crate::polls::views(&state, id, None, &user, &access).await?;
     let sessions: Vec<_> = crate::game_sessions::db::upcoming_for_campaign(&state.db, id)
         .await?

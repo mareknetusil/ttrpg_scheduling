@@ -111,7 +111,16 @@ pub async fn show(
 ) -> Result<Html<String>, AppError> {
     let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
     let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    state.render("schedule/show.html", ctx)
+    let comments =
+        crate::comments::views(&state, campaign.id, None, Some(poll.id), &user, &access).await?;
+    state.render(
+        "schedule/show.html",
+        context! {
+            comments => Serde(&comments),
+            can_comment => access.role.is_some(),
+            ..ctx
+        },
+    )
 }
 
 /// `PUT` via htmx from a vote button; answers with the re-rendered grid (block `grid`), since one

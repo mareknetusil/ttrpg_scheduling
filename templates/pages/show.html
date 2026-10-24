@@ -23,7 +23,7 @@
   </div>
   {% if can_manage %}
     <div class="row">
-      <a class="button" href="/campaigns/{{ campaign.id }}/pages/{{ page.slug }}/edit">Edit</a>
+      <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/pages/{{ page.slug }}/edit">Edit</a>
       <button type="button" class="link-button link-button--danger"
               hx-delete="/campaigns/{{ campaign.id }}/pages/{{ page.slug }}"
               hx-confirm="Delete the page {{ page.title }}?">Delete</button>

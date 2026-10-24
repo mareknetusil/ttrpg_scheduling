@@ -28,7 +28,8 @@
 
 {% block content %}
 {% set campaign_tab = "members" %}{% set on_tab = true %}{% include "campaigns/_nav.html" %}
-<h1>Members</h1>
+{# The active tab names the page; the h1 is for screen readers and the outline #}
+<h1 class="visually-hidden">Members</h1>
 
 {% if error %}
   <p class="alert alert--error" role="alert">{{ error }}</p>

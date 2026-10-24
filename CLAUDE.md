@@ -56,7 +56,8 @@ finished. Keep the code simple and explicit so the owner can still read and main
   a breadcrumb and Cancel instead.
 - `templates/base.html` is the page shell; pages `{% extends "base.html" %}` and fill the
   `title`, `head` and `content` blocks. The nav renders user links only when `current_user` is
-  in the context.
+  in the context; a page marks its nav link by filling `nav_home` / `nav_admin` with
+  `aria-current="page"` (or `"true"` inside that section).
 - Styling lives in `static/css/style.css`; colours and spacing are CSS variables on `:root`
   (with a `prefers-color-scheme: dark` override). Reuse them instead of hard-coding values.
   The CSS is mobile first: rules outside media queries are the phone layout, wider screens add

@@ -161,6 +161,7 @@ a { color: var(--accent); }
   gap: var(--space-1) var(--space-3);
 }
 .site-nav a { color: var(--text); text-decoration: none; }
+.site-nav a[aria-current] { color: var(--accent); font-weight: 600; }
 .site-nav__user { display: none; color: var(--muted); }
 .site-nav form { margin: 0; }
 
@@ -191,7 +192,18 @@ a { color: var(--accent); }
 @media (min-width: 40rem) {
   .card { padding: var(--space-4); margin-bottom: var(--space-4); }
 }
-.card h2 { margin-top: 0; font-size: 1.1rem; }
+.card--attention { border-left: 4px solid var(--accent); }
+/* Card titles are small labels, so the content's own headings (a description's Markdown, an
+   entry's title, a poll's question) outrank them */
+.card > h2, .attendance__title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 
 .button {
   display: inline-flex;
@@ -416,6 +428,23 @@ input[type="datetime-local"] {
 .item-list li > .muted { flex-basis: 100%; font-size: 0.875rem; }
 
 /* ---------- Dashboard ---------- */
+/* Things to do: each one a full-width link (one big tap target) with its call to action */
+.action-list { list-style: none; margin: 0; padding: 0; }
+.action-list li + li { border-top: 1px solid var(--border); }
+.action-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.action-link__main { display: flex; flex-direction: column; min-width: 0; }
+.action-link__go { flex: none; color: var(--accent); font-weight: 700; }
+/* "3 to answer" next to a poll in a list */
+.to-answer { color: var(--accent); font-weight: 600; }
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
@@ -839,7 +868,6 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
 /* ---------- Game sessions ---------- */
 /* Attendance, right under the session's head */
 .attendance { margin-bottom: var(--space-4); }
-.attendance__title { font-family: var(--font-body); font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-bottom: var(--space-1); }
 .attendance__view { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .attendance__view p { margin: 0; }
 .attendance .form { margin-top: var(--space-2); }
@@ -931,6 +959,7 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
 @media (hover: hover) {
   .site-nav a:hover, .link-button:hover, .breadcrumb a:hover, .campaign-nav__name:hover { color: var(--accent); }
   .tab-nav a:hover { color: var(--text); }
+  .action-link:hover .action-link__go { text-decoration: underline; }
   .link-button--danger:hover { color: var(--danger); text-decoration: underline; }
   .button:hover { filter: brightness(1.08); }
   .button:disabled:hover { filter: none; }

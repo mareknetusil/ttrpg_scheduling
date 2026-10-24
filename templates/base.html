@@ -17,10 +17,12 @@
         <span class="brand__die" aria-hidden="true">⬢</span>
         <span class="brand__name">TTRPG Scheduling</span>
       </a>
+      {# Pages mark their nav link by filling its block with aria-current="page" (or "true" for a
+         page inside that section) #}
       <nav class="site-nav" aria-label="Main">
         {% if current_user %}
-          <a href="/">Campaigns</a>
-          {% if current_user.is_admin %}<a href="/admin">Admin</a>{% endif %}
+          <a href="/" {% block nav_home %}{% endblock %}>Home</a>
+          {% if current_user.is_admin %}<a href="/admin" {% block nav_admin %}{% endblock %}>Admin</a>{% endif %}
           <span class="site-nav__user">{{ current_user.display_name }}</span>
           <form method="post" action="/logout">
             <button type="submit" class="link-button">Log out</button>

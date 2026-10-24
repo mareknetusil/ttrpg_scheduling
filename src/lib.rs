@@ -79,7 +79,11 @@ async fn index(
     user: CurrentUser,
 ) -> Result<Html<String>, error::AppError> {
     let campaigns = campaigns::db::for_user(&state.db, user.id).await?;
-    let polls = scheduling::db::open_for_user(&state.db, user.id).await?;
+    // Polls still waiting for some of the user's answers get a card of their own, at the top
+    let (to_vote, polls): (Vec<_>, Vec<_>) = scheduling::db::open_for_user(&state.db, user.id)
+        .await?
+        .into_iter()
+        .partition(|p| p.voting_open && p.my_vote_count < p.option_count);
     let sessions: Vec<_> = game_sessions::db::upcoming_for_user(&state.db, user.id)
         .await?
         .into_iter()
@@ -90,6 +94,7 @@ async fn index(
         context! {
             current_user => minijinja::value::Serde(&user),
             campaigns => minijinja::value::Serde(&campaigns),
+            to_vote => minijinja::value::Serde(&to_vote),
             polls => minijinja::value::Serde(&polls),
             sessions => minijinja::value::Serde(&sessions),
         },

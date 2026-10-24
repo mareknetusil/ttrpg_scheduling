@@ -11,12 +11,11 @@
 
 {% block content %}
 {% set campaign_tab = "history" %}{% set on_tab = true %}{% include "campaigns/_nav.html" %}
-<section class="page-head">
-  <h1>History</h1>
-  {% if can_manage %}
-    <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/sessions/new">New session</a>
-  {% endif %}
-</section>
+{# The active tab names the page; the h1 is for screen readers and the outline #}
+<h1 class="visually-hidden">History</h1>
+{% if can_manage %}
+  <p><a class="button button--secondary" href="/campaigns/{{ campaign.id }}/sessions/new">New session</a></p>
+{% endif %}
 
 {% if sessions %}
   <ol class="history" reversed>

@@ -209,4 +209,13 @@ async fn campaign_tabs_mark_where_you_are(db: SqlitePool) {
         r.text(&format!("a[href='/campaigns/{id}/schedule/new']")),
         "Find a date"
     );
+    // The main nav marks Home on the dashboard only
+    assert_eq!(
+        gm.get("/")
+            .await
+            .attr(".site-nav a[href='/']", "aria-current")
+            .as_deref(),
+        Some("page")
+    );
+    assert!(!r.has(".site-nav a[aria-current]"));
 }

@@ -18,7 +18,13 @@ async fn admin_pages_are_admin_only(db: SqlitePool) {
     let ada = app.admin("ada").await;
     assert!(ada.get("/").await.has("a[href='/admin']"));
     assert_eq!(ada.get("/admin").await.redirect(), "/admin/users");
-    assert_eq!(ada.get("/admin/users").await.ok().count(".user-row"), 2);
+    let r = ada.get("/admin/users").await;
+    assert_eq!(r.ok().count(".user-row"), 2);
+    assert_eq!(
+        r.attr(".site-nav a[href='/admin']", "aria-current")
+            .as_deref(),
+        Some("page")
+    );
 }
 
 #[sqlx::test]

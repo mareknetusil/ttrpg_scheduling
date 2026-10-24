@@ -183,8 +183,16 @@ async fn outsiders_and_site_admins(db: SqlitePool) {
         StatusCode::NOT_FOUND
     );
 
-    // dashboard nudges members who haven't voted
-    assert_eq!(mark.get("/").await.text(".item-list .badge"), "Vote");
+    // dashboard and campaign page nudge members who haven't voted
+    let r = mark.get("/").await;
+    assert_eq!(r.texts("#to-vote .action-link strong"), ["S"]);
+    assert!(r.text("#to-vote").contains("Camp · 1 of 1 date to answer"));
+    assert_eq!(
+        mark.get(&format!("/campaigns/{id}"))
+            .await
+            .text(".to-answer"),
+        "1 to answer"
+    );
 
     // cancel
     assert_eq!(
@@ -206,7 +214,7 @@ async fn outsiders_and_site_admins(db: SqlitePool) {
         mark.get(&format!("/schedule/{poll}")).await.text(".alert"),
         "This poll was cancelled."
     );
-    assert!(!mark.get("/").await.has(".item-list .badge"));
+    assert!(!mark.get("/").await.has("#to-vote"));
 }
 
 #[sqlx::test]
@@ -360,9 +368,11 @@ async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
             .starts_with("You haven't answered 1 of 1 date yet.")
     );
     assert!(vote(&mark, poll, opts[0], "yes").await.ok().hx_refresh);
-    // the dashboard badge only counts future dates
+    // the dashboard's "Your vote is needed" only counts future dates
     vote(&mark, poll, opts[1], "yes").await.ok();
-    assert!(!mark.get("/").await.has(".item-list .badge"));
+    let r = mark.get("/").await;
+    assert!(!r.has("#to-vote"));
+    assert_eq!(r.text(".item-list .muted.small"), "answered");
 
     let r = gm.get(&format!("/schedule/{poll}")).await;
     assert_eq!(
@@ -758,4 +768,35 @@ async fn grid_conveniences(db: SqlitePool) {
         "a closed poll doesn't refresh"
     );
     assert_eq!(r.texts(".vote-grid__member"), ["Gina", "Mark", "You"]);
+}
+
+#[sqlx::test]
+async fn dashboard_puts_polls_to_vote_first(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let new_poll = |title: &'static str, date: &'static str| {
+        let gm = &gm;
+        async move {
+            gm.post(
+                &format!("/campaigns/{id}/schedule"),
+                &[("title", title), ("options", date)],
+            )
+            .await
+            .redirect_id("/schedule/")
+        }
+    };
+    let todo = new_poll("To do", "2030-01-10T18:00").await;
+    let done = new_poll("Done", "2030-01-11T18:00").await;
+    new_poll("Passed", "2020-01-10T18:00").await;
+    let opt = option_ids(&app, done).await[0];
+    vote(&mark, done, opt, "yes").await.ok();
+
+    let r = mark.get("/").await;
+    assert_eq!(r.ok().texts("#to-vote .action-link strong"), ["To do"]);
+    assert!(r.has(&format!("#to-vote a[href='/schedule/{todo}']")));
+    assert_eq!(r.texts(".dashboard-grid .card h2"), ["Other open polls"]);
+    assert_eq!(
+        r.texts(".dashboard-grid .item-list .muted.small"),
+        ["answered", "all dates passed"]
+    );
 }

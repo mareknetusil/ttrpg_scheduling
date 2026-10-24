@@ -6,19 +6,43 @@
                    banner_version (set when there's a banner) }, the user's non-archived campaigns
      sessions      list of { id, campaign_id, campaign_name, number, title, when: When }: planned
                    upcoming game sessions in those campaigns, soonest first (at most 10)
-     polls         list of { id, campaign_id, campaign_name, title, status, voting_open, option_count,
-                   my_vote_count }: open scheduling polls in those campaigns; the two
-                   counts cover only dates still in the future #}
+     to_vote       list of { id, campaign_id, campaign_name, title, status, voting_open, option_count,
+                   my_vote_count }: open scheduling polls in those campaigns where voting is open
+                   and the user hasn't answered every date; the two counts cover only dates still
+                   in the future
+     polls         the same for the other open polls (answered, or voting closed) #}
 
-{% block title %}Campaigns · TTRPG Scheduling{% endblock %}
+{% block title %}Home · TTRPG Scheduling{% endblock %}
+{% block nav_home %}aria-current="page"{% endblock %}
 
 {% block content %}
 <section class="page-head">
   <div>
     <h1>Hello, {{ current_user.display_name }}!</h1>
   </div>
-  <a class="button" href="/campaigns/new">New campaign</a>
+  <a class="button button--secondary" href="/campaigns/new">New campaign</a>
 </section>
+
+{# What needs the user comes first: the polls waiting for their answers #}
+{% if to_vote %}
+  <section class="card card--attention" id="to-vote">
+    <h2>Your vote is needed</h2>
+    <ul class="action-list">
+      {% for p in to_vote %}
+        {% set left = p.option_count - p.my_vote_count %}
+        <li>
+          <a class="action-link" href="/schedule/{{ p.id }}">
+            <span class="action-link__main">
+              <strong>{{ p.title }}</strong>
+              <span class="muted small">{{ p.campaign_name }} · {{ left }} of {{ p.option_count }} date{% if p.option_count != 1 %}s{% endif %} to answer</span>
+            </span>
+            <span class="action-link__go">Vote<span aria-hidden="true"> →</span></span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}
 
 {% if sessions or polls %}
   <div class="dashboard-grid">
@@ -39,12 +63,12 @@
     {% endif %}
     {% if polls %}
       <section class="card">
-        <h2>Open scheduling polls</h2>
+        <h2>{% if to_vote %}Other open polls{% else %}Open scheduling polls{% endif %}</h2>
         <ul class="item-list">
           {% for p in polls %}
             <li>
               <a href="/schedule/{{ p.id }}"><strong>{{ p.title }}</strong></a>
-              {% if not p.voting_open %}<span class="muted small">voting closed</span>{% elif p.my_vote_count < p.option_count %}<span class="badge">Vote</span>{% endif %}
+              <span class="muted small">{% if not p.voting_open %}voting closed{% elif p.option_count == 0 %}all dates passed{% else %}answered{% endif %}</span>
               <span class="muted">{{ p.campaign_name }}</span>
             </li>
           {% endfor %}

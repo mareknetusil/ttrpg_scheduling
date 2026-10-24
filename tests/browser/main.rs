@@ -732,3 +732,36 @@ async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
     assert!(b.el("#new-entry").await.is_displayed().await.unwrap());
     b.quit().await;
 }
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn pick_buttons_show_on_demand_while_voting(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S1"), ("options", "2030-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let opt = app.scalar("SELECT MIN(id) FROM schedule_options").await;
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    b.goto(&format!("/schedule/{poll}")).await;
+    assert!(!b.el(".pick-form").await.is_displayed().await.unwrap());
+    b.el("#pick-toggle").await.click().await.unwrap();
+    assert!(b.el(".pick-form").await.is_displayed().await.unwrap());
+
+    // a vote swaps the grid; the new Pick buttons follow the toggle
+    b.el(&format!("#vote-{opt}-yes"))
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el(&format!("#vote-{opt}-yes[aria-pressed='true']")).await;
+    assert!(b.el(".pick-form").await.is_displayed().await.unwrap());
+    b.quit().await;
+}

@@ -48,6 +48,9 @@
 {% block content %}
 {% set campaign_tab = "overview" %}{% set on_tab = false %}{% include "campaigns/_nav.html" %}
 
+{# picking: the GM's Pick buttons are shown. While voting is open they hide behind "Pick the date",
+   so they don't crowd the voting; afterwards picking is all that's left to do. #}
+<div x-data="{ picking: false }">
 <section class="page-head">
   <div>
     <h1>{{ poll.title }}</h1>
@@ -65,6 +68,11 @@
   </div>
   {% if can_manage and poll.status == "open" %}
     <div class="row row--tight">
+    {% if poll.voting_open %}
+      <button type="button" class="button button--secondary button--small" id="pick-toggle"
+              @click="picking = !picking" :aria-pressed="picking"
+              x-text="picking ? 'Done picking' : 'Pick the date'">Pick the date</button>
+    {% endif %}
     <a class="button button--secondary button--small" href="/schedule/{{ poll.id }}/edit">Edit poll</a>
     <form method="post" action="/schedule/{{ poll.id }}/cancel"
           data-confirm="Cancel this poll? Nobody can vote afterwards." onsubmit="return confirm(this.dataset.confirm)">
@@ -179,6 +187,7 @@
                 {% endif %}
                 {% if can_manage and poll.status == "open" and not opt.when.is_past %}
                   <form method="post" action="/schedule/{{ poll.id }}/decide" class="pick-form"
+                        {% if poll.voting_open %}x-show="picking" x-cloak{% endif %}
                         data-confirm="Pick {{ opt.when.full }}? This creates the game session (attending: everyone who said yes) and closes the poll."
                         onsubmit="return confirm(this.dataset.confirm)">
                     <input type="hidden" name="option_id" value="{{ opt.id }}">
@@ -219,7 +228,7 @@
                 <td class="cell cell--{{ answer or 'none' }}"
                     data-name="{% if m.user_id == current_user.id %}You{% else %}{{ m.display_name }}{% endif %}"
                     title="{{ m.display_name }}: {{ answer or 'no answer yet' }}">
-                  {% if answer == "yes" %}✓{% elif answer == "maybe" %}?{% elif answer == "no" %}✗{% else %}·{% endif %}
+                  <span class="cell__mark" aria-hidden="true">{% if answer == "yes" %}✓{% elif answer == "maybe" %}?{% elif answer == "no" %}✗{% else %}·{% endif %}</span>
                   <span class="visually-hidden">{{ m.display_name }}: {{ answer or "no answer yet" }}</span>
                 </td>
                 {% endif %}
@@ -232,6 +241,7 @@
   </div>
   {% endblock %}
 </section>
+</div>
 
 {% set comment_post_url = "/schedule/" ~ poll.id ~ "/comments" %}
 {% include "comments/_section.html" %}

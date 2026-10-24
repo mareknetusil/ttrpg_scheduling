@@ -783,8 +783,9 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
   font-weight: 600;
   color: var(--muted);
 }
-/* "Players" goes before the member chips (order), as a flex item of the row */
-.vote-grid tr:has(td.cell)::after { content: "Players"; order: 1; }
+/* "Players" goes before the member chips (order), on a line of its own so the chips wrap
+   evenly below it */
+.vote-grid tr:has(td.cell)::after { content: "Players"; order: 1; flex-basis: 100%; }
 .vote-grid td.cell {
   order: 2;
   padding: 0 var(--space-2);
@@ -792,6 +793,10 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
   font-size: 0.875rem;
 }
 .vote-grid td.cell::before { content: attr(data-name) " "; font-weight: 400; color: var(--text); }
+/* No answer yet: just the name, in a dashed outline */
+.vote-grid td.cell--none { border: 1px dashed var(--border); }
+.vote-grid td.cell--none::before { content: attr(data-name); color: var(--muted); }
+.vote-grid td.cell--none .cell__mark { display: none; }
 
 .vote-buttons { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .vote-btn {
@@ -863,6 +868,8 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
   .vote-grid__mine::before, .vote-grid__total::before, .vote-grid tr:has(td.cell)::after,
   .vote-grid td.cell::before { content: none; }
   .vote-grid td.cell { padding: var(--space-2); border-radius: 0; font-size: inherit; }
+  .vote-grid td.cell--none { border: 0; border-bottom: 1px solid var(--border); }
+  .vote-grid td.cell--none .cell__mark { display: inline; }
 }
 
 /* ---------- Game sessions ---------- */

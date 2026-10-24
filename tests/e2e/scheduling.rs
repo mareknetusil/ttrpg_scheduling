@@ -341,6 +341,9 @@ async fn deadline_closes_voting(db: SqlitePool) {
     let r = gm.get(&format!("/schedule/{poll}")).await;
     assert!(r.ok().text(".alert").contains("Pick a date below"));
     assert_eq!(r.count("form[action$='/decide']"), 1);
+    // with voting closed the Pick buttons are always shown, without the toggle
+    assert!(!r.has("#pick-toggle"));
+    assert_eq!(r.attr(".pick-form", "x-show"), None);
 }
 
 #[sqlx::test]
@@ -690,13 +693,12 @@ async fn grid_conveniences(db: SqlitePool) {
         Some("Answer")
     );
     assert!(r.text(".answer-rest").starts_with("Answer all:"));
-    // the GM's Pick buttons sit in the date cells
-    assert_eq!(
-        gm.get(&format!("/schedule/{poll}"))
-            .await
-            .count(".vote-grid__date .pick-form"),
-        3
-    );
+    // the GM's Pick buttons sit in the date cells; while voting is open, "Pick the date" shows
+    // them (Alpine: x-show="picking")
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.count(".vote-grid__date .pick-form"), 3);
+    assert!(r.has("#pick-toggle"));
+    assert_eq!(r.attr(".pick-form", "x-show").as_deref(), Some("picking"));
 
     // clicking the current answer again clears it
     let r = vote(&mark, poll, opts[0], "yes").await;

@@ -689,6 +689,7 @@ async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
     for path in [
         "/".to_string(),
         format!("/campaigns/{id}"),
+        format!("/campaigns/{id}/history"),
         format!("/campaigns/{id}/members"),
         format!("/schedule/{poll}"),
         format!("/sessions/{session}"),

@@ -354,7 +354,7 @@ async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
 
     let r = mark.get(&format!("/schedule/{poll}")).await;
     assert_eq!(r.ok().text("tr.is-past td.muted"), "Past");
-    assert_eq!(r.count(".vote-btn"), 3, "only the future date");
+    assert_eq!(r.count(".vote-grid .vote-btn"), 3, "only the future date");
     assert!(
         r.text(".your-progress")
             .starts_with("You haven't answered 1 of 1 date yet.")

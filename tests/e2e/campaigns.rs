@@ -148,3 +148,65 @@ async fn members_view_but_only_the_gm_manages(db: SqlitePool) {
         StatusCode::NOT_FOUND
     );
 }
+
+#[sqlx::test]
+async fn campaign_tabs_mark_where_you_are(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S1"), ("options", "2030-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let session = gm
+        .post(
+            &format!("/campaigns/{id}/sessions"),
+            &[("starts_at", "2030-01-03T18:00")],
+        )
+        .await
+        .redirect_id("/sessions/");
+    gm.post(
+        &format!("/campaigns/{id}/pages"),
+        &[("title", "NPCs"), ("body_md", "")],
+    )
+    .await;
+
+    // (page, current tab, aria-current, campaign name above the tabs)
+    for (path, tab, current, named) in [
+        (format!("/campaigns/{id}"), "Overview", "page", false),
+        (format!("/campaigns/{id}/history"), "History", "page", true),
+        (format!("/campaigns/{id}/members"), "Members", "page", true),
+        (format!("/schedule/{poll}"), "Overview", "true", true),
+        (format!("/sessions/{session}"), "History", "true", true),
+        (
+            format!("/campaigns/{id}/pages/npcs"),
+            "Overview",
+            "true",
+            true,
+        ),
+    ] {
+        let r = gm.get(&path).await;
+        assert_eq!(
+            r.ok().texts(".tab-nav a"),
+            ["Overview", "History", "Members"]
+        );
+        assert_eq!(r.text(".tab-nav a[aria-current]"), tab, "{path}");
+        assert_eq!(
+            r.attr(".tab-nav a[aria-current]", "aria-current")
+                .as_deref(),
+            Some(current),
+            "{path}"
+        );
+        assert_eq!(r.has(".campaign-nav__name"), named, "{path}");
+    }
+
+    // The scheduling poll button is "Find a date", apart from the polls' "New poll"
+    let r = gm.get(&format!("/campaigns/{id}")).await;
+    assert_eq!(
+        r.text(&format!("a[href='/campaigns/{id}/schedule/new']")),
+        "Find a date"
+    );
+}

@@ -51,13 +51,17 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - The contract between backend and frontend is the template context (the variables each handler
   passes to a template, documented in a comment at the top of every template) and the routes
   listed in `docs/DESIGN.md`. Keep both up to date when either side changes.
+- Campaign pages (overview, history, members, and a poll, game session or wiki page inside
+  them) start with the tabs from `campaigns/_nav.html` (`campaign_tab`, `on_tab`); forms keep
+  a breadcrumb and Cancel instead.
 - `templates/base.html` is the page shell; pages `{% extends "base.html" %}` and fill the
   `title`, `head` and `content` blocks. The nav renders user links only when `current_user` is
   in the context.
 - Styling lives in `static/css/style.css`; colours and spacing are CSS variables on `:root`
   (with a `prefers-color-scheme: dark` override). Reuse them instead of hard-coding values.
   The CSS is mobile first: rules outside media queries are the phone layout, wider screens add
-  `min-width` queries (40rem, 48rem), hover effects sit in one `@media (hover: hover)` block.
+  `min-width` queries (40rem, 48rem). Controls are finger-sized (about 44px) by default;
+  `@media (pointer: fine)` makes them compact and `@media (hover: hover)` holds hover effects.
   Page source order is phone order (most important first); `.campaign-layout` places the side
   column on the right from 48rem whatever its position in the source.
 - htmx and Alpine.js are vendored in `static/js/` with the version in the file name

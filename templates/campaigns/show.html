@@ -18,7 +18,7 @@
 {% block title %}{{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/">← Campaigns</a></p>
+{% set campaign_tab = "overview" %}{% set on_tab = true %}{% include "campaigns/_nav.html" %}
 {% if campaign.banner_version %}
   <img class="campaign-banner{% if campaign.accent %} accent--{{ campaign.accent }}{% endif %}"
        src="/campaigns/{{ campaign.id }}/banner?v={{ campaign.banner_version }}" alt="">
@@ -32,13 +32,9 @@
       {% if campaign.gm_user_id == current_user.id %}you{% else %}{{ campaign.gm_name }}{% endif %}
     </p>
   </div>
-  <div class="row">
-    <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/history">History</a>
-    <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/members">Members</a>
-    {% if can_manage %}
-      <a class="button" href="/campaigns/{{ campaign.id }}/edit">Edit</a>
-    {% endif %}
-  </div>
+  {% if can_manage %}
+    <a class="button" href="/campaigns/{{ campaign.id }}/edit">Edit</a>
+  {% endif %}
 </section>
 
 {% if current_user.is_admin and not is_member %}
@@ -101,7 +97,7 @@
       {% endif %}
       {% if can_manage %}
         <div class="row row--tight">
-          <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/schedule/new">New poll</a>
+          <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/schedule/new">Find a date</a>
           <a class="small" href="/campaigns/{{ campaign.id }}/schedule/patterns">Regular slots</a>
         </div>
       {% endif %}

@@ -10,7 +10,7 @@
 {% block title %}History · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+{% set campaign_tab = "history" %}{% set on_tab = true %}{% include "campaigns/_nav.html" %}
 <section class="page-head">
   <h1>History</h1>
   {% if can_manage %}

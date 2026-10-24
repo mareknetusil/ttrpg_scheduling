@@ -46,7 +46,7 @@
 {% block title %}{{ poll.title }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a></p>
+{% set campaign_tab = "overview" %}{% set on_tab = false %}{% include "campaigns/_nav.html" %}
 
 <section class="page-head">
   <div>
@@ -119,21 +119,25 @@
        {% if poll.voting_open %}hx-get="/schedule/{{ poll.id }}/grid" hx-trigger="every 60s"
        hx-swap="outerHTML" data-quiet-errors{% endif %}>
     {% if can_vote and upcoming %}
-      <p class="muted small your-progress">
+      <div class="muted small your-progress">
         {% if unanswered %}
-          You haven't answered {{ unanswered }} of {{ upcoming }} date{% if upcoming != 1 %}s{% endif %} yet.
-          <span class="answer-rest">
-            Answer {% if unanswered == upcoming %}all{% else %}the rest{% endif %}:
-            {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
-              <button type="button" class="link-button link-button--link" id="answer-rest-{{ answer }}"
-                      hx-put="/schedule/{{ poll.id }}/vote-unanswered" hx-vals='{"answer": "{{ answer }}"}'
-                      hx-target="#vote-grid" hx-swap="outerHTML">{{ label }}</button>{% if not loop.last %} ·{% endif %}
-            {% endfor %}
-          </span>
+          <p>You haven't answered {{ unanswered }} of {{ upcoming }} date{% if upcoming != 1 %}s{% endif %} yet.
+            {% if unanswered < upcoming %}Pick an answer again to clear it.{% endif %}</p>
+          <div class="answer-rest">
+            <span>Answer {% if unanswered == upcoming %}all{% else %}the rest{% endif %}:</span>
+            <div class="vote-buttons" role="group" aria-label="Answer {% if unanswered == upcoming %}all dates{% else %}the dates you haven't answered{% endif %}">
+              {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
+                <button type="button" class="vote-btn" id="answer-rest-{{ answer }}"
+                        hx-put="/schedule/{{ poll.id }}/vote-unanswered" hx-vals='{"answer": "{{ answer }}"}'
+                        hx-target="#vote-grid" hx-swap="outerHTML">{{ label }}</button>
+              {% endfor %}
+            </div>
+          </div>
         {% else %}
-          You've answered every date. You can change your answers until the GM decides.
+          <p>You've answered every date. You can change your answers until the GM decides; pick an
+            answer again to clear it.</p>
         {% endif %}
-      </p>
+      </div>
     {% endif %}
     {% if poll.voting_open and upcoming %}
       <p class="small waiting-on">

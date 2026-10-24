@@ -32,12 +32,10 @@
 {% block title %}Session {{ session.number }} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
+{% set campaign_tab = "history" %}{% set on_tab = false %}{% include "campaigns/_nav.html" %}
+
 {# One column: attendance under the head, then entries, polls, comments #}
 <div class="narrow">
-<p class="breadcrumb">
-  <a href="/campaigns/{{ campaign.id }}">← {{ campaign.name }}</a>
-  · <a href="/campaigns/{{ campaign.id }}/history">History</a>
-</p>
 
 <section x-data="{ editing: {{ 'true' if session_error else 'false' }} }">
   <div class="page-head">

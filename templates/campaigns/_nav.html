@@ -1,0 +1,17 @@
+{# Campaign navigation at the top of every campaign page except forms (they have Cancel).
+   Context: campaign { id, name, ... }
+            campaign_tab   "overview" | "history" | "members": the tab this page belongs to
+            on_tab         bool: the page is the tab itself (aria-current="page"), not a page
+                           inside it like a game session under History (aria-current="true")
+   The campaign's name is shown above the tabs, except on the overview (its h1 is the name). #}
+<nav class="campaign-nav" aria-label="Campaign">
+  {% if not (campaign_tab == "overview" and on_tab) %}
+    <a class="campaign-nav__name" href="/campaigns/{{ campaign.id }}">{{ campaign.name }}</a>
+  {% endif %}
+  <div class="tab-nav">
+    {% for tab, label, href in [("overview", "Overview", ""), ("history", "History", "/history"), ("members", "Members", "/members")] %}
+      <a href="/campaigns/{{ campaign.id }}{{ href }}"
+         {% if tab == campaign_tab %}aria-current="{{ 'page' if on_tab else 'true' }}"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+</nav>

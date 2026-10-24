@@ -98,9 +98,30 @@ impl Browser {
             .expect("not logged in");
     }
 
-    /// Waits (up to the default 20 s) for an element.
+    /// Waits (up to the default 20 s) for an element, with no htmx swap in progress before or
+    /// after. htmx inserts swapped-in HTML first and wires up its hx-* attributes only when the
+    /// swap settles (20 ms later, longer on a busy machine): a click in between does nothing.
+    /// Waiting before the lookup keeps it from finding an element a swap is about to replace.
     async fn el(&self, css: &str) -> WebElement {
-        self.driver.query(By::Css(css)).first().await.unwrap()
+        self.htmx_idle().await;
+        let el = self.driver.query(By::Css(css)).first().await.unwrap();
+        self.htmx_idle().await;
+        el
+    }
+
+    /// Waits until htmx has no request, swap or settle going on (it marks each with a class).
+    async fn htmx_idle(&self) {
+        for _ in 0..200 {
+            let busy: bool = self
+                .js("return document.querySelector(
+                        '.htmx-request, .htmx-swapping, .htmx-settling, .htmx-added') !== null;")
+                .await;
+            if !busy {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("htmx still busy after 20 s");
     }
 
     async fn js<T: serde::de::DeserializeOwned>(&self, script: &str) -> T {

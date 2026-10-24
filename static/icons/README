@@ -1,0 +1,6 @@
+App icons. The PNGs are generated from the SVGs (ImageMagick), from the repo root:
+
+  magick -background none static/icons/icon.svg -strip -resize 192x192 -depth 8 static/icons/icon-192.png
+  magick -background none static/icons/icon.svg -strip -resize 512x512 -depth 8 static/icons/icon-512.png
+  magick static/icons/maskable.svg -strip -resize 512x512 -depth 8 static/icons/maskable-512.png
+  magick static/icons/maskable.svg -strip -resize 180x180 -depth 8 static/icons/apple-touch-icon.png

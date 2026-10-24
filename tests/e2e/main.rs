@@ -12,3 +12,4 @@ mod invites;
 mod pages;
 mod scheduling;
 mod sessions;
+mod site;

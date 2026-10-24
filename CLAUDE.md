@@ -129,9 +129,12 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - `src/error.rs`: `AppError` (thiserror) + `IntoResponse`. Internal errors (`Template`,
   `Database`, `Internal` wrapping `anyhow::Error`) are logged and returned as a generic 500; the
   response body never contains internal error text. `NotFound` returns a 404, and `Unauthorized`
-  redirects to `/login`.
+  redirects to `/login`. Errors are a small HTML page (`error_page`, no template) with a link
+  home, since the home-screen app has no back button.
 - `build.rs`: makes cargo rebuild when `migrations/` changes (needed by `sqlx::migrate!()`), and
   sets `APP_VERSION` (`0.1.0+<git commit>`), shown in the footer and by `GET /healthz`.
+- `static/manifest.webmanifest` + `static/icons/` ("Add to Home Screen"; the PNGs are generated
+  from the SVGs, see `static/icons/README`).
 - `deploy/`: systemd units (hardened service, nightly backup timer) and the env file example.
   `scripts/deploy.sh` builds and deploys. Runbook: `docs/DEPLOY.md`.
 

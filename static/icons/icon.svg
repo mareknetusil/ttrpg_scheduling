@@ -1,0 +1,10 @@
+<!-- The app icon: a d20 on the accent colour (#8a3b2e). Rounded, for the favicon and the
+     manifest's "any" icons; maskable.svg is the same, full-bleed. PNGs: see static/icons/README -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#8a3b2e"/>
+  <g fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="256,106 385.9,181 385.9,331 256,406 126.1,331 126.1,181"/>
+    <polygon points="256,151 346,308.5 166,308.5"/>
+    <path d="M256,151 L256,106 M256,151 L126.1,181 M256,151 L385.9,181 M166,308.5 L126.1,181 M166,308.5 L126.1,331 M166,308.5 L256,406 M346,308.5 L385.9,181 M346,308.5 L385.9,331 M346,308.5 L256,406"/>
+  </g>
+</svg>

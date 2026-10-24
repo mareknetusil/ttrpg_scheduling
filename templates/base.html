@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TTRPG Scheduling{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  {# Icon, and "Add to Home Screen": opens like an app, without the browser's address bar.
+     theme-color is the header's colour (--surface, light and dark). #}
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#211f1c" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-title" content="TTRPG">
   <script src="/static/js/htmx-2.0.11.min.js" defer></script>
   <script src="/static/js/alpine-3.17.4.min.js" defer></script>
   {% block head %}{% endblock %}

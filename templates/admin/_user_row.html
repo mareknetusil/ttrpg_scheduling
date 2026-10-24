@@ -14,7 +14,7 @@
     {% if u.deactivated %}<span class="status status--cancelled">Deactivated</span>{% endif %}
     {% if u.id == me %}<span class="muted">(you)</span>{% endif %}
     <span class="muted small user-row__meta">
-      {{ u.campaign_count }} campaign{{ "" if u.campaign_count == 1 else "s" }} · since {{ u.created_at[:10] }}
+      {{ u.campaign_count }} campaign{{ "" if u.campaign_count == 1 else "s" }} · since {{ (u.created_at|when).date_long }}
     </span>
   </div>
   <div class="user-row__actions">

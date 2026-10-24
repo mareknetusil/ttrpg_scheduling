@@ -22,7 +22,7 @@
             <span class="muted">{{ c.system }}</span>
             <span class="muted small user-row__meta">
               GM: {{ c.gm_name }} · {{ c.member_count }} member{{ "" if c.member_count == 1 else "s" }}
-              · {{ c.session_count }} session{{ "" if c.session_count == 1 else "s" }} · since {{ c.created_at[:10] }}
+              · {{ c.session_count }} session{{ "" if c.session_count == 1 else "s" }} · since {{ (c.created_at|when).date_long }}
             </span>
           </div>
           <div class="user-row__actions">

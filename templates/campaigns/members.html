@@ -22,8 +22,6 @@
    Confirmation texts are plain HTML attributes (hx-confirm, data-confirm), never built into a
    JS string. #}
 
-   Timestamps are UTC ISO strings for now; only the date part is shown.
-
 {% block title %}Members · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
 {% block content %}
@@ -45,8 +43,8 @@
           {% if m.user_id == campaign.gm_user_id %}<span class="badge">GM</span>{% endif %}
           {% if m.user_id == current_user.id %}<span class="muted">(you)</span>{% endif %}
           {% if m.deactivated %}<span class="status status--cancelled">Deactivated</span>{% endif %}
+          <span class="muted small member__since">joined {{ (m.joined_at|when).date_long }}</span>
         </span>
-        <span class="muted member__since">since {{ m.joined_at[:10] }}</span>
         {% if m.user_id != campaign.gm_user_id %}
           {% if m.user_id == current_user.id %}
             <button type="button" class="link-button link-button--danger"
@@ -89,7 +87,7 @@
         {% for inv in invites %}
           <li class="invite" x-data="{ copied: false, url: location.origin + '/invite/{{ inv.token }}' }">
             <code class="invite__url" x-text="url">/invite/{{ inv.token }}</code>
-            <span class="muted">{{ inv.use_count }}/{{ inv.max_uses }} used · expires {{ inv.expires_at[:10] }}</span>
+            <span class="muted">{{ inv.use_count }}/{{ inv.max_uses }} used · expires {{ (inv.expires_at|when).date_long }}</span>
             <span class="invite__actions">
               <button type="button" class="button button--secondary"
                       @click="navigator.clipboard.writeText(url).then(() => { copied = true; setTimeout(() => copied = false, 1500) })"

@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# viewport-fit=cover: the page fills the whole screen of phones with a notch or home bar; the
+     CSS keeps content clear of them with env(safe-area-inset-*) #}
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}TTRPG Scheduling{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/style.css">
   {# Icon, and "Add to Home Screen": opens like an app, without the browser's address bar.

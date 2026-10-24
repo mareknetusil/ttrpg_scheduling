@@ -141,6 +141,19 @@ async fn members_view_but_only_the_gm_manages(db: SqlitePool) {
         assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
     }
 
+    // Dates are shown readably (the `when` filter), in the display time zone (Prague in tests)
+    sqlx::query("UPDATE campaign_members SET joined_at = '2026-03-05T23:30:00Z' WHERE user_id = ?")
+        .bind(member.id)
+        .execute(&app.db)
+        .await
+        .unwrap();
+    let r = member.get(&format!("/campaigns/{id}/members")).await;
+    assert!(
+        r.ok()
+            .texts(".member__since")
+            .contains(&"joined Fri 6 Mar 2026".to_string())
+    );
+
     // A site admin who isn't a member can look, but not run the campaign (see admin.rs)
     admin.get(&format!("/campaigns/{id}")).await.ok();
     assert_eq!(

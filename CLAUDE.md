@@ -119,7 +119,8 @@ finished. Keep the code simple and explicit so the owner can still read and main
   session numbers in date order; call it after any insert or date change.
 - `src/time.rs`: UTC DB strings ↔ `chrono`; `parse_local` for `datetime-local` inputs in
   `DISPLAY_TZ`; `When`, the struct templates get for any timestamp (`iso`, `date`, `time`, `full`,
-  `input`, `is_past`).
+  `input`, `is_past`). For a timestamp kept as a string in a row struct, templates use the
+  `when` filter: `{{ (m.joined_at|when).date_long }}` (registered in `AppState::new`).
 - `AppState` (in `lib.rs`) holds `templates`, `db` and `tz`. `state.render(name, ctx)` renders a
   full page, `state.render_block(name, block, ctx)` one block (htmx fragments).
 - `src/config.rs`: `Config::from_env()`. `DATABASE_URL` is required, `BIND_ADDR` defaults to

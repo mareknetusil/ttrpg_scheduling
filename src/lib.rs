@@ -47,6 +47,11 @@ impl AppState {
             "accents",
             minijinja::Value::from(campaigns::model::ACCENTS.to_vec()),
         );
+        // `{{ (m.joined_at|when).date_long }}`: a DB timestamp kept as a string in a row struct,
+        // as the same `When` that handlers pass for other timestamps
+        templates.add_filter("when", move |s: String| {
+            minijinja::Value::from(minijinja::value::Serde(time::When::from_db(&s, tz)))
+        });
         AppState { templates, db, tz }
     }
 

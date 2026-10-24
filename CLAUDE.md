@@ -56,6 +56,10 @@ finished. Keep the code simple and explicit so the owner can still read and main
   in the context.
 - Styling lives in `static/css/style.css`; colours and spacing are CSS variables on `:root`
   (with a `prefers-color-scheme: dark` override). Reuse them instead of hard-coding values.
+  The CSS is mobile first: rules outside media queries are the phone layout, wider screens add
+  `min-width` queries (40rem, 48rem), hover effects sit in one `@media (hover: hover)` block.
+  Page source order is phone order (most important first); `.campaign-layout` places the side
+  column on the right from 48rem whatever its position in the source.
 - htmx and Alpine.js are vendored in `static/js/` with the version in the file name
   (htmx 2.0.x, Alpine 3.x). No CDNs, no web fonts: the Pi serves only over the VPN and may have
   no internet access. To upgrade, download the new file, rename it, and update `base.html`.

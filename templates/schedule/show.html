@@ -183,9 +183,9 @@
                 {% endif %}
               </th>
               {% if can_vote and opt.when.is_past %}
-                <td class="muted small">Past</td>
+                <td class="vote-grid__mine muted small" data-label="Your answer">Past</td>
               {% elif can_vote %}
-                <td>
+                <td class="vote-grid__mine" data-label="Your answer">
                   <div class="vote-buttons" role="group" aria-label="Your answer for {{ opt.when.full }}">
                     {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
                       {# Clicking your current answer again clears it #}
@@ -204,7 +204,7 @@
                   </div>
                 </td>
               {% endif %}
-              <td class="vote-grid__total">
+              <td class="vote-grid__total" data-label="Yes / maybe / no">
                 <span class="tally tally--yes" title="yes">{{ opt.yes }}</span>
                 <span class="tally tally--maybe" title="maybe">{{ opt.maybe }}</span>
                 <span class="tally tally--no" title="no">{{ opt.no }}</span>
@@ -213,6 +213,7 @@
                 {% set answer = opt.cells[loop.index0] %}
                 {% if not (can_vote and m.user_id == current_user.id) %}
                 <td class="cell cell--{{ answer or 'none' }}"
+                    data-name="{% if m.user_id == current_user.id %}You{% else %}{{ m.display_name }}{% endif %}"
                     title="{{ m.display_name }}: {{ answer or 'no answer yet' }}">
                   {% if answer == "yes" %}✓{% elif answer == "maybe" %}?{% elif answer == "no" %}✗{% else %}·{% endif %}
                   <span class="visually-hidden">{{ m.display_name }}: {{ answer or "no answer yet" }}</span>

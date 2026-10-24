@@ -52,24 +52,8 @@
 {% endif %}
 
 <div class="campaign-layout">
-  <div class="campaign-layout__main">
-    <section class="card">
-      <h2>About</h2>
-      {% if description_html %}
-        <div class="prose">{{ description_html|safe }}</div>
-      {% else %}
-        <p class="muted">No description yet.</p>
-      {% endif %}
-    </section>
-
-    {% set new_poll_url = "/campaigns/" ~ campaign.id ~ "/polls/new" %}
-    {% include "polls/_section.html" %}
-
-    {% set comment_post_url = "/campaigns/" ~ campaign.id ~ "/comments" %}
-    {% include "comments/_section.html" %}
-  </div>
-
-  <aside class="campaign-layout__side">
+  {# First in the source: on phones (one column) what's next comes before the description #}
+  <div class="campaign-layout__side">
     <section class="card">
       <h2>Next sessions</h2>
       {% if sessions %}
@@ -138,6 +122,23 @@
         <a class="button button--secondary" href="/campaigns/{{ campaign.id }}/pages/new">New page</a>
       {% endif %}
     </section>
-  </aside>
+  </div>
+
+  <div class="campaign-layout__main">
+    <section class="card">
+      <h2>About</h2>
+      {% if description_html %}
+        <div class="prose">{{ description_html|safe }}</div>
+      {% else %}
+        <p class="muted">No description yet.</p>
+      {% endif %}
+    </section>
+
+    {% set new_poll_url = "/campaigns/" ~ campaign.id ~ "/polls/new" %}
+    {% include "polls/_section.html" %}
+
+    {% set comment_post_url = "/campaigns/" ~ campaign.id ~ "/comments" %}
+    {% include "comments/_section.html" %}
+  </div>
 </div>
 {% endblock %}

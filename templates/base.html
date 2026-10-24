@@ -12,9 +12,10 @@
 <body>
   <header class="site-header">
     <div class="container site-header__inner">
-      <a class="brand" href="/">
+      {# Phones show only the die (the name is hidden), hence the aria-label #}
+      <a class="brand" href="/" aria-label="TTRPG Scheduling">
         <span class="brand__die" aria-hidden="true">⬢</span>
-        <span>TTRPG Scheduling</span>
+        <span class="brand__name">TTRPG Scheduling</span>
       </a>
       <nav class="site-nav" aria-label="Main">
         {% if current_user %}

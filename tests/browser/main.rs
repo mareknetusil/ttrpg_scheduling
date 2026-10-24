@@ -637,18 +637,97 @@ async fn voting_grid_fits_a_phone(db: SqlitePool) {
     }
 
     let b = Browser::start(&app).await;
+    // Headless Firefox won't go narrower than 500 px (that already gets the phone layout), so
+    // the page is narrowed further below
+    b.driver.set_window_rect(0, 0, 390, 844).await.unwrap();
     b.login("gina").await;
     b.goto(&format!("/schedule/{poll}")).await;
     b.el("tr.is-best .badge").await;
-    // Headless Firefox won't make the window narrower than 500 px, so narrow the page instead
-    let (date, wrap): (f64, f64) = b
+    let (overflow, layout): (f64, String) = b
         .js(r#"
             document.body.style.maxWidth = "360px";
-            return [document.querySelector("tr.is-best .vote-grid__date").offsetWidth,
-                    document.querySelector(".vote-grid-wrap").clientWidth];
+            const wrap = document.querySelector(".vote-grid-wrap");
+            return [wrap.scrollWidth - wrap.clientWidth,
+                    getComputedStyle(document.querySelector(".vote-grid tr")).display];
         "#)
         .await;
-    // The sticky date column must leave room for the answers, or it covers the whole row
-    assert!(date < wrap / 2.0, "date column {date}px of {wrap}px");
+    // Each date is a block of rows, and nothing needs sideways scrolling
+    assert_eq!(layout, "flex");
+    assert!(overflow <= 0.0, "the grid overflows by {overflow}px");
+    b.quit().await;
+}
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    // A site admin with a long name: the fullest header there is
+    let gm = app.admin("maximilianvonhohenstein").await;
+    let id = gm.create_campaign("Camp").await;
+    let mark = app.user("mark").await;
+    app.add_member(id, &mark).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "S2"), ("options", "2030-01-10T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let session = gm
+        .post(
+            &format!("/campaigns/{id}/sessions"),
+            &[("starts_at", "2030-01-03T18:00")],
+        )
+        .await
+        .redirect_id("/sessions/");
+
+    let b = Browser::start(&app).await;
+    // Headless Firefox won't go narrower than 500 px (already the phone layout); each page is
+    // narrowed further to 360 px
+    b.driver.set_window_rect(0, 0, 390, 844).await.unwrap();
+    b.login("maximilianvonhohenstein").await;
+    for path in [
+        "/".to_string(),
+        format!("/campaigns/{id}"),
+        format!("/campaigns/{id}/members"),
+        format!("/schedule/{poll}"),
+        format!("/sessions/{session}"),
+    ] {
+        b.goto(&path).await;
+        let overflow: f64 = b
+            .js(r#"
+                document.body.style.maxWidth = "360px";
+                return document.body.scrollWidth - document.body.clientWidth;
+            "#)
+            .await;
+        assert!(overflow <= 0.0, "{path} overflows by {overflow}px");
+    }
+
+    // Campaign: the next sessions come before the description
+    b.goto(&format!("/campaigns/{id}")).await;
+    let next_first: bool = b
+        .js(r#"
+            const top = (text) => [...document.querySelectorAll(".card h2")]
+                .find((h) => h.textContent === text).getBoundingClientRect().top;
+            return top("Next sessions") < top("About");
+        "#)
+        .await;
+    assert!(next_first, "Next sessions should come before About");
+
+    // Game session: attendance before the entries; the entry form opens on demand
+    b.goto(&format!("/sessions/{session}")).await;
+    let attendance_first: bool = b
+        .js(r#"
+            return document.getElementById("attendance").getBoundingClientRect().top
+                < document.querySelector(".section-title").getBoundingClientRect().top;
+        "#)
+        .await;
+    assert!(
+        attendance_first,
+        "attendance should come before the entries"
+    );
+    assert!(!b.el("#new-entry").await.is_displayed().await.unwrap());
+    b.el("#add-entry").await.click().await.unwrap();
+    assert!(b.el("#new-entry").await.is_displayed().await.unwrap());
     b.quit().await;
 }

@@ -606,3 +606,49 @@ async fn slot_dates_are_added_in_place(db: SqlitePool) {
         .unwrap();
     b.quit().await;
 }
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn voting_grid_fits_a_phone(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let mark = app.user("mark").await;
+    app.add_member(id, &mark).await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    // Both say yes: the date gets the "No one said no" and "Most yes" badges
+    let opt = app.scalar("SELECT MIN(id) FROM schedule_options").await;
+    for u in [&gm, &mark] {
+        u.put(
+            &format!("/schedule/{poll}/options/{opt}/vote"),
+            &[("answer", "yes")],
+        )
+        .await;
+    }
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    b.goto(&format!("/schedule/{poll}")).await;
+    b.el("tr.is-best .badge").await;
+    // Headless Firefox won't make the window narrower than 500 px, so narrow the page instead
+    let (date, wrap): (f64, f64) = b
+        .js(r#"
+            document.body.style.maxWidth = "360px";
+            return [document.querySelector("tr.is-best .vote-grid__date").offsetWidth,
+                    document.querySelector(".vote-grid-wrap").clientWidth];
+        "#)
+        .await;
+    // The sticky date column must leave room for the answers, or it covers the whole row
+    assert!(date < wrap / 2.0, "date column {date}px of {wrap}px");
+    b.quit().await;
+}

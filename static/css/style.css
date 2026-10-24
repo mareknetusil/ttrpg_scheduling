@@ -628,14 +628,17 @@ input[type="datetime-local"] {
   white-space: nowrap;
 }
 .vote-grid thead th { font-size: 0.8rem; font-weight: 600; color: var(--muted); vertical-align: bottom; }
-.vote-grid .vote-grid__date {
+/* The date column stays put while the answers scroll sideways. It may wrap (badges go below
+   the date); with nowrap it could grow wider than a phone screen and cover the whole row. */
+.vote-grid .vote-grid__date, .vote-grid thead th:first-child {
   position: sticky;
   left: 0;
   z-index: 1;
   background: var(--surface);
   text-align: left;
 }
-.vote-grid thead th:first-child { text-align: left; }
+.vote-grid .vote-grid__date { white-space: normal; }
+.vote-grid__date .badge { white-space: nowrap; }
 .vote-grid__member { max-width: 6rem; overflow: hidden; text-overflow: ellipsis; }
 .vote-grid tr.is-best .vote-grid__date { box-shadow: inset 3px 0 0 var(--success); }
 .vote-grid tr.is-decided td, .vote-grid tr.is-decided .vote-grid__date { background: var(--accent-soft); }

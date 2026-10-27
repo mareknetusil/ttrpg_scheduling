@@ -200,3 +200,17 @@ PI_HOST=pi@raspberrypi HEALTH_URL=http://<vpn-ip>:8080/healthz scripts/deploy.sh
   Startup/glue code uses `anyhow::Result` with `.context(...)` so failures name what failed.
   `Display` messages describe only their own layer; the cause comes from `source()`.
 - Authorization checks live in the backend; templates may hide buttons, but must not be the only check.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`mareknetusil/ttrpg_scheduling`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, both created only when needed. See `docs/agents/domain.md`.

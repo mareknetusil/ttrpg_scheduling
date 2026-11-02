@@ -4,12 +4,11 @@
 pub mod db;
 mod handlers;
 pub mod model;
-pub mod pattern;
 
 use crate::AppState;
 use axum::{
     Router,
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
 };
 use std::sync::Arc;
 
@@ -18,12 +17,6 @@ pub fn campaign_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(handlers::create))
         .route("/new", get(handlers::new_form))
-        .route("/slot-dates", get(handlers::slot_dates_json))
-        .route(
-            "/patterns",
-            get(handlers::patterns_page).post(handlers::create_pattern),
-        )
-        .route("/patterns/{pattern_id}", delete(handlers::delete_pattern))
 }
 
 /// Nested at `/schedule`.
@@ -35,6 +28,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/{poll_id}/options/{option_id}/vote",
             put(handlers::vote).delete(handlers::clear_vote),
+        )
+        .route("/{poll_id}/options/{option_id}/paint", put(handlers::paint))
+        .route(
+            "/{poll_id}/weekdays/{weekday}",
+            put(handlers::paint_weekday),
         )
         .route("/{poll_id}/vote-unanswered", put(handlers::vote_unanswered))
         .route("/{poll_id}/decide", post(handlers::decide))

@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: v1.0 (2026-10-21). Progress: M0–M11 done.
+Status: v1.1 (2026-11-02). Progress: M0–M12 done.
 
 ## 1. Goals and non-goals
 
@@ -23,7 +23,7 @@ Status: v1.0 (2026-10-21). Progress: M0–M11 done.
 | #  | Requirement | Notes |
 |----|-------------|-------|
 | R1 | A user creates a campaign (name, rule system, short description, ...). The creator is the default GM; the GM can be reassigned. Users can be invited to a campaign. | Invitation by link (see §5.2). |
-| R2 | The GM creates a scheduling poll for a game session. Candidate dates are either picked manually or generated from a regular pattern (e.g. "every Friday 18:00"). Members vote. | Votes: yes / maybe / no per date. |
+| R2 | The GM creates a scheduling poll for a game session, as a calendar (weeks, one date per day, whole weekdays in one tap) or a list (a few exact dates and times). Members vote. | Votes: yes / maybe / no per date. |
 | R3 | The GM picks the final date. It does not have to be the most-voted one. The GM can also add a game session directly, without a poll (one already played, or a date already agreed). | Picking creates a `game_session`. |
 | R4 | Every game session shows in the campaign history with date and attendees. The GM can edit attendance. | Attendance defaults to the "yes" voters (all members for a session added directly). |
 | R5 | A game session can hold several content entries (recap, notes, loot, ...). | |
@@ -92,7 +92,7 @@ src/
   campaigns/           # one module per feature: mod.rs (router) + handlers.rs + db.rs (queries) + model.rs
   invites/             # accept an invite, register through one
   pages/               # campaign wiki pages
-  scheduling/          # scheduling polls, voting grid, regular slots (pattern.rs)
+  scheduling/          # scheduling polls: calendar and list layouts, voting, decide
   game_sessions/       # sessions, history, attendance, entries
   comments/
   polls/
@@ -145,12 +145,9 @@ campaign_pages                         -- R6, wiki-lite
   id, campaign_id, title, slug, body_md, sort_order, created_by, updated_at
   UNIQUE (campaign_id, slug)
 
-schedule_patterns                      -- R2, "regular" scheduling (a campaign's regular slots)
-  id, campaign_id, weekdays (bitmask, bit 0 = Monday), start_time ('HH:MM', local),
-  every_n_weeks (1-4), anchor_date (Monday of a week with sessions), created_by, created_at
-
 schedule_polls                         -- R2
-  id, campaign_id, title, description_md, status ('open' | 'decided' | 'cancelled'),
+  id, campaign_id, title, description_md, layout ('calendar' | 'list'; old polls are lists),
+  status ('open' | 'decided' | 'cancelled'),
   deadline_at NULL, created_by, created_at,
   decided_option_id NULL → schedule_options, game_session_id NULL → game_sessions
 
@@ -192,13 +189,24 @@ poll_votes
 - Comments and polls attach to a campaign and *optionally* to a game session
   (`game_session_id NULL` means "campaign-level"). This avoids polymorphic `target_type/target_id`
   columns and keeps real foreign keys.
-- `schedule_patterns` don't create anything by themselves. They're a **generator for candidate
-  dates**: "new scheduling poll from pattern, next 3 weeks" produces e.g. 3 Fridays + 3 Saturdays
-  as `schedule_options`, which the GM can then edit. This keeps the "regular" and "manual" flows
-  the same after creation. In the UI they're called "regular slots"; generation happens in Rust
-  (`scheduling::pattern`), skipping past times and local times that don't exist (DST gap).
-  `duration_minutes` and `active` were dropped: nothing uses a duration yet, and a slot that's no
-  longer used is simply deleted.
+- A poll's **layout** (M12, decided 2026-10-27) is how it shows its candidate dates:
+  - **calendar** (the default for new polls): week rows, Monday first, from the week of the
+    first date to the week of the last (every week between included). At most one date per day
+    (in `DISPLAY_TZ`), checked by `NewPollForm::validate`. The time most dates start at
+    (`usual_time`, derived, not stored; a tie goes to the earliest date's time) is shown once,
+    and only days with another time show theirs. The form shows this week and next, "+ Week"
+    adds rows, a weekday header switches every future day of that column, and one start time
+    (the previous poll's usual time, else 18:00) can be overridden per day.
+  - **list**: one row per date, exact times; for a few scattered dates or two times on one day.
+  - Members answer a calendar with a **brush** (yes / maybe / no, yes to start with): tapping a
+    day gives it the brush's answer, or clears it if it had that answer already; tapping a
+    weekday header does the same for every upcoming date of that weekday (`db::paint`, one
+    request). Under the calendar, the member table shows who said what, read-only.
+  - Editing matches existing dates to the new ones **by day** in a calendar (a day whose time
+    moved keeps its answers) and by exact time in a list. The GM can switch the layout; to a
+    calendar only while no day has two times.
+- Regular slots (`schedule_patterns`, M7) were removed in M12: nobody used them, and the
+  calendar form covers "it depends on the weekday" with one tap per weekday.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
   pre-fill attendance with the "yes" voters, set `status = 'decided'`.
 - Adding a session directly (`/campaigns/{id}/sessions/new`) is one transaction too. Its status
@@ -275,7 +283,7 @@ The VPN is the outer wall, but we still need to know *who* is voting.
 | View campaign, members, history, pages | ✓ | ✓ | ✓ | – |
 | Edit campaign, pages, reassign GM | – | ✓ | – | – |
 | Create invites, remove members | – | ✓ | – | – |
-| Create / decide scheduling poll, regular slots | – | ✓ | – | – |
+| Create / decide scheduling poll | – | ✓ | – | – |
 | Vote in scheduling poll / poll | – | ✓ | ✓ | – |
 | Edit attendance, session details | – | ✓ | – | – |
 | Add game session entries (recap...) | – | ✓ | ✓ | – |
@@ -327,16 +335,15 @@ GET  /campaigns/{id}/history                           # list of game sessions
 GET  /campaigns/{id}/sessions/new                      # add a session without a poll (GM)
 POST /campaigns/{id}/sessions                          # fields title, starts_at, user_ids (repeated)
 
-GET  /campaigns/{id}/schedule/new                      # ?pattern_id=&weeks= fills dates from a slot
-POST /campaigns/{id}/schedule
-GET  /campaigns/{id}/schedule/patterns, POST …/patterns              # regular slots (GM/admin)
-DELETE /campaigns/{id}/schedule/patterns/{pattern_id}                # htmx
-GET  /schedule/{poll_id}                               # voting grid
-GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   # JSON dates of a regular slot (GM); the poll form's "Add"
+GET  /campaigns/{id}/schedule/new                      # new poll (calendar layout)
+POST /campaigns/{id}/schedule                          # fields title, description_md, layout, deadline, options (repeated)
+GET  /schedule/{poll_id}                               # calendar or voting grid
 POST /schedule/{poll_id}/reopen                       # undo a decision (GM); deletes the untouched session
 GET  /schedule/{poll_id}/edit, POST /schedule/{poll_id}   # edit an open poll (GM); dates matched by time keep their votes
 PUT  /schedule/{poll_id}/options/{opt_id}/vote         # htmx, field answer; (fragment) the whole grid or HX-Refresh
 DELETE /schedule/{poll_id}/options/{opt_id}/vote       # htmx: clear your answer (click it again); same responses
+PUT  /schedule/{poll_id}/options/{opt_id}/paint        # htmx (calendar), field answer: set it, or clear it if the day had it; same responses
+PUT  /schedule/{poll_id}/weekdays/{0-6}                # htmx (calendar), field answer: the same for every upcoming date of that weekday
 PUT  /schedule/{poll_id}/vote-unanswered               # htmx, field answer: answer all dates you haven't; same responses
 GET  /schedule/{poll_id}/grid                          # htmx, every 60 s while voting is open; HX-Refresh once closed
 POST /schedule/{poll_id}/decide                        # field option_id; redirects to the new session
@@ -501,6 +508,7 @@ version is worth using.
 | M9 | Comments and polls | generic helpers if (and only if) duplication appears | done |
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | done |
 | M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | done |
+| M12 | Calendar layout for scheduling polls (form and voting brush); regular slots removed | (agent-written) | done |
 
 ### 10.1 M11: end-to-end tests (plan)
 

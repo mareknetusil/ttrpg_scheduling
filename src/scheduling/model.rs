@@ -1,7 +1,7 @@
-use super::pattern::{Pattern, monday_of};
 use crate::time::{self, When};
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Datelike, Duration, NaiveDate};
 use chrono_tz::Tz;
+use std::collections::HashMap;
 
 /// A vote. Stored as `TEXT` ('yes' | 'maybe' | 'no'), see the `CHECK` in the migration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -22,11 +22,26 @@ pub enum PollStatus {
     Cancelled,
 }
 
+/// How a poll shows its candidate dates (see GLOSSARY.md). Stored as `TEXT`.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, sqlx::Type, serde::Serialize, serde::Deserialize,
+)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum Layout {
+    /// Week rows, at most one candidate date per day
+    Calendar,
+    /// One row per candidate date. The default for a form without the field, like the old polls.
+    #[default]
+    List,
+}
+
 pub struct Poll {
     pub id: i64,
     pub campaign_id: i64,
     pub title: String,
     pub description_md: String,
+    pub layout: Layout,
     pub status: PollStatus,
     pub deadline_at: Option<String>,
     pub decided_option_id: Option<i64>,
@@ -49,6 +64,7 @@ impl Poll {
 pub struct PollView {
     pub id: i64,
     pub title: String,
+    pub layout: Layout,
     pub status: PollStatus,
     pub deadline: Option<When>,
     /// See `Poll::voting_open`
@@ -62,6 +78,7 @@ impl PollView {
         PollView {
             id: poll.id,
             title: poll.title.clone(),
+            layout: poll.layout,
             status: poll.status,
             deadline: poll.deadline_at.as_deref().map(|d| When::from_db(d, tz)),
             voting_open: poll.voting_open(),
@@ -107,6 +124,8 @@ pub struct NewPollForm {
     #[serde(default)]
     pub description_md: String,
     #[serde(default)]
+    pub layout: Layout,
+    #[serde(default)]
     pub deadline: String,
     #[serde(default)]
     pub options: Vec<String>,
@@ -116,6 +135,7 @@ pub struct NewPollForm {
 pub struct NewPoll {
     pub title: String,
     pub description_md: String,
+    pub layout: Layout,
     pub deadline_at: Option<String>,
     pub options: Vec<String>,
 }
@@ -147,115 +167,111 @@ impl NewPollForm {
         if self.options.len() > MAX_OPTIONS {
             return Err(format!("At most {MAX_OPTIONS} dates per poll."));
         }
-        let mut options = Vec::new();
+        let mut times = Vec::new();
         for o in &self.options {
             let t = time::parse_local(o, tz)
                 .ok_or_else(|| format!("“{o}” isn't a valid date and time."))?;
-            options.push(time::to_db(t));
+            times.push(t);
         }
-        options.sort();
-        options.dedup();
+        times.sort();
+        times.dedup();
+        if self.layout == Layout::Calendar {
+            // One candidate date per day (in the group's time zone); the dates are sorted, so a
+            // second one on the same day is right after the first
+            for pair in times.windows(2) {
+                let day = pair[0].with_timezone(&tz).date_naive();
+                if pair[1].with_timezone(&tz).date_naive() == day {
+                    return Err(format!(
+                        "{} has two times. A calendar has one time per day: use the list layout for that.",
+                        day.format("%a %-d %b")
+                    ));
+                }
+            }
+        }
+        let options = times.into_iter().map(time::to_db).collect();
         Ok(NewPoll {
             title: self.title.clone(),
             description_md: self.description_md.clone(),
+            layout: self.layout,
             deadline_at,
             options,
         })
     }
 }
 
-pub struct PatternRow {
-    pub id: i64,
-    pub weekdays: i64,
-    pub start_time: String,
-    pub every_n_weeks: i64,
-    pub anchor_date: String,
-}
-
-impl PatternRow {
-    /// `None` only if the row is malformed, which the CHECKs and `PatternForm` prevent.
-    pub fn pattern(&self) -> Option<Pattern> {
-        Some(Pattern {
-            weekdays: u8::try_from(self.weekdays).ok()?,
-            start_time: NaiveTime::parse_from_str(&self.start_time, "%H:%M").ok()?,
-            every_n_weeks: u32::try_from(self.every_n_weeks).ok()?,
-            anchor: NaiveDate::parse_from_str(&self.anchor_date, "%Y-%m-%d").ok()?,
-        })
+/// The time most candidate dates start at ("18:00"): a calendar shows it once, above the weeks,
+/// and marks only the days that start at another time. Ties go to the time of the earliest
+/// date (`times` are in date order). `None` without dates.
+pub fn usual_time(times: &[&str]) -> Option<String> {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for t in times {
+        *counts.entry(t).or_default() += 1;
     }
-}
-
-#[derive(serde::Serialize)]
-pub struct PatternView {
-    pub id: i64,
-    pub description: String,
-}
-
-impl PatternView {
-    pub fn new(row: &PatternRow) -> Option<PatternView> {
-        Some(PatternView {
-            id: row.id,
-            description: row.pattern()?.describe(),
-        })
+    let mut best: Option<(&str, usize)> = None;
+    for t in times {
+        let n = counts[t];
+        if best.is_none_or(|(_, most)| n > most) {
+            best = Some((t, n));
+        }
     }
+    best.map(|(t, _)| t.to_string())
 }
 
-/// `POST /campaigns/{id}/schedule/patterns`. `weekdays` are repeated checkbox values 0 (Monday)
-/// to 6 (Sunday); `first_week` is any date in the first week with sessions.
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct PatternForm {
-    #[serde(default)]
-    pub weekdays: Vec<u8>,
-    pub start_time: String,
-    pub every_n_weeks: u32,
-    #[serde(default)]
-    pub first_week: String,
+/// The Monday of the week `date` is in.
+pub fn monday_of(date: NaiveDate) -> NaiveDate {
+    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
 }
 
-/// A validated `PatternForm`, ready to insert.
-pub struct NewPattern {
-    pub weekdays: i64,
-    pub start_time: String,
-    pub every_n_weeks: i64,
-    pub anchor_date: String,
+/// One day of a calendar poll's weeks.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct CalendarDay {
+    /// "2026-11-06"
+    pub date: String,
+    /// "6"; "1 Dec" on the first of a month and on the first day shown
+    pub label: String,
+    /// The index of this day's candidate date in the poll's options, if it has one
+    pub option: Option<usize>,
+    /// Before today (in the group's time zone)
+    pub is_past: bool,
+    pub is_today: bool,
 }
 
-impl PatternForm {
-    pub fn validate(&self, today: NaiveDate) -> Result<NewPattern, &'static str> {
-        let mut weekdays: u8 = 0;
-        for day in &self.weekdays {
-            if *day > 6 {
-                return Err("Pick days of the week.");
-            }
-            weekdays |= 1 << day;
-        }
-        if weekdays == 0 {
-            return Err("Pick at least one day of the week.");
-        }
-        let start_time = NaiveTime::parse_from_str(self.start_time.trim(), "%H:%M")
-            .map_err(|_| "Fill in a start time.")?;
-        if !(1..=4).contains(&self.every_n_weeks) {
-            return Err("Pick how often: every 1 to 4 weeks.");
-        }
-        let first_week = if self.first_week.trim().is_empty() {
-            today
-        } else {
-            NaiveDate::parse_from_str(self.first_week.trim(), "%Y-%m-%d")
-                .map_err(|_| "The first week isn't a valid date.")?
-        };
-        Ok(NewPattern {
-            weekdays: i64::from(weekdays),
-            start_time: start_time.format("%H:%M").to_string(),
-            every_n_weeks: i64::from(self.every_n_weeks),
-            anchor_date: monday_of(first_week).format("%Y-%m-%d").to_string(),
-        })
+/// The weeks (Monday to Sunday) from the first candidate date to the last, every week in between
+/// included. `dates` are the local days of the poll's options, in option order.
+pub fn calendar_weeks(dates: &[NaiveDate], today: NaiveDate) -> Vec<Vec<CalendarDay>> {
+    let (Some(first), Some(last)) = (dates.iter().min(), dates.iter().max()) else {
+        return Vec::new();
+    };
+    let mut option_on: HashMap<NaiveDate, usize> = HashMap::new();
+    for (i, d) in dates.iter().enumerate() {
+        // Only an old list poll switched over could have two; the first one wins
+        option_on.entry(*d).or_insert(i);
     }
-}
-
-/// `GET /campaigns/{id}/schedule/new?pattern_id=…&weeks=…` fills the dates from a pattern.
-#[derive(serde::Deserialize)]
-pub struct GenerateQuery {
-    pub pattern_id: Option<i64>,
-    pub weeks: Option<u32>,
+    let start = monday_of(*first);
+    let mut weeks = Vec::new();
+    let mut monday = start;
+    while monday <= *last {
+        let week = (0..7)
+            .map(|i| {
+                let day = monday + Duration::days(i);
+                let label = if day == start || day.day() == 1 {
+                    day.format("%-d %b").to_string()
+                } else {
+                    day.day().to_string()
+                };
+                CalendarDay {
+                    date: day.format("%Y-%m-%d").to_string(),
+                    label,
+                    option: option_on.get(&day).copied(),
+                    is_past: day < today,
+                    is_today: day == today,
+                }
+            })
+            .collect();
+        weeks.push(week);
+        monday += Duration::days(7);
+    }
+    weeks
 }
 
 #[derive(serde::Deserialize)]
@@ -276,6 +292,7 @@ mod tests {
         NewPollForm {
             title: "Next session".to_string(),
             description_md: String::new(),
+            layout: Layout::List,
             deadline: String::new(),
             options: options.iter().map(|o| o.to_string()).collect(),
         }
@@ -294,5 +311,57 @@ mod tests {
         );
         assert!(form(&[]).validate(tz).is_err());
         assert!(form(&["soon"]).validate(tz).is_err());
+    }
+
+    #[test]
+    fn a_calendar_has_one_time_per_day() {
+        let tz = chrono_tz::Europe::Prague;
+        let mut f = form(&["2026-11-07T14:00", "2026-11-07T19:00"]);
+        assert!(f.validate(tz).is_ok(), "a list can");
+        f.layout = Layout::Calendar;
+        assert_eq!(
+            f.validate(tz).err().unwrap(),
+            "Sat 7 Nov has two times. A calendar has one time per day: use the list layout for that."
+        );
+        // 00:30 local is still the 8th, although it's the 7th in UTC
+        f.options = vec!["2026-11-07T19:00".into(), "2026-11-08T00:30".into()];
+        assert!(f.validate(tz).is_ok());
+    }
+
+    #[test]
+    fn usual_time_is_the_most_common() {
+        assert_eq!(usual_time(&[]), None);
+        assert_eq!(
+            usual_time(&["14:00", "18:00", "18:00"]).as_deref(),
+            Some("18:00")
+        );
+        // a tie: the earliest date's time
+        assert_eq!(usual_time(&["19:00", "18:00"]).as_deref(), Some("19:00"));
+    }
+
+    #[test]
+    fn calendar_weeks_cover_every_week_from_first_to_last() {
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        // Fri 27 Nov and Tue 8 Dec 2026: three weeks, Mon 23 Nov to Sun 13 Dec
+        let weeks = calendar_weeks(&[d("2026-11-27"), d("2026-12-08")], d("2026-11-25"));
+        assert_eq!(weeks.len(), 3);
+        assert!(weeks.iter().all(|w| w.len() == 7));
+        let first = &weeks[0][0];
+        assert_eq!(
+            (first.date.as_str(), first.label.as_str()),
+            ("2026-11-23", "23 Nov")
+        );
+        assert!(first.is_past);
+        assert!(weeks[0][2].is_today);
+        assert_eq!(weeks[0][4].option, Some(0));
+        assert_eq!(weeks[1][1].label, "1 Dec", "the first of a month names it");
+        assert_eq!(weeks[1][2].label, "2");
+        assert!(
+            weeks[1].iter().all(|d| d.option.is_none()),
+            "a week between"
+        );
+        assert_eq!(weeks[2][1].option, Some(1));
+        assert_eq!(weeks[2][6].date, "2026-12-13");
+        assert!(calendar_weeks(&[], d("2026-11-25")).is_empty());
     }
 }

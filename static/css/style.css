@@ -711,17 +711,39 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
 }
 .invite__actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
 
-/* ---------- Scheduling: new poll form, regular slots ---------- */
-.date-list { border: 0; margin: 0; padding: 0; }
+/* ---------- Scheduling: new poll form ---------- */
+.date-list { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .date-list legend { font-weight: 600; padding: 0; margin-bottom: var(--space-1); }
+.date-list p { margin: 0; }
 .date-list__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin-bottom: var(--space-2); }
 /* The date takes the row; "Remove" and "4 answers" (editing) fit beside it or wrap below */
 .date-list__row input[type="datetime-local"] { flex: 1 1 15rem; min-width: min(15rem, 100%); }
 .date-list__row .muted { white-space: nowrap; }
 .date-list .row { margin-block: var(--space-1); gap: var(--space-2); }
-.date-list__row input[type="text"] {
-  flex: 1;
-  padding: var(--space-2) var(--space-3);
+
+/* Calendar / List: two segments, like the vote buttons */
+.layout-switch { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.layout-switch__opt { position: relative; }
+.layout-switch__opt input { position: absolute; opacity: 0; }
+.layout-switch__opt span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.layout-switch__opt + .layout-switch__opt span { border-left: 1px solid var(--border); }
+.layout-switch__opt input:checked + span { background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+.layout-switch__opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.cal-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.field--inline { flex-direction: row; align-items: center; gap: var(--space-2); }
+.cal-times summary { cursor: pointer; color: var(--accent); }
+.cal-times__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); max-width: 18rem; margin-top: var(--space-2); }
+.cal-times__row input {
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
@@ -729,24 +751,102 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
   font: inherit;
 }
 
-.fill-form { margin-bottom: var(--space-3); padding: var(--space-3); }
-.weekday-picker { border: 0; margin: 0; padding: 0; }
-.weekday-picker legend { font-weight: 600; padding: 0; margin-bottom: var(--space-1); }
-.weekday-picker__days { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.weekday { position: relative; }
-.weekday input { position: absolute; opacity: 0; }
-.weekday span {
-  display: inline-block;
-  min-width: 3.2rem;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
+/* ---------- Scheduling: calendar (form and voting) ---------- */
+/* Seven equal columns, Monday first. A day is a square-ish button, about 44px wide on a phone;
+   wider screens keep the calendar compact rather than stretching it. */
+.cal { width: 100%; max-width: 32rem; table-layout: fixed; border-collapse: separate; border-spacing: 3px; margin-inline: -3px; }
+.cal th { padding: 0; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.cal td { padding: 0; height: 3.5rem; }
+.cal form { margin: 0; height: 100%; }
+.cal__weekday {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 1px dashed var(--border);
   border-radius: var(--radius);
-  background: var(--bg);
-  text-align: center;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
   cursor: pointer;
 }
-.weekday input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 600; }
-.weekday input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cal__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 3.5rem;
+  padding: 3px 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.2;
+}
+button.cal__btn { cursor: pointer; }
+button.cal__btn:disabled { cursor: default; }
+.cal__label { font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+.cal__time, .cal__count, .cal__tally, .cal__pick-label { font-size: 0.7rem; white-space: nowrap; }
+.cal__time { color: var(--info); font-weight: 700; }
+.cal__tally { display: flex; gap: 2px; font-weight: 700; }
+.cal__mark { position: absolute; top: 1px; right: 3px; font-size: 0.7rem; color: var(--success); }
+.cal__pick-label { font-weight: 700; color: var(--accent); }
+.cal-note { margin: 0 0 var(--space-2); }
+
+/* Days without a candidate date (voting) and days before today */
+.cal__day--empty { text-align: center; vertical-align: top; color: var(--muted); }
+.cal__day--empty .cal__label { display: block; padding-top: 4px; font-weight: 400; opacity: 0.6; }
+.cal__day.is-past .cal__btn { opacity: 0.5; }
+.cal__day.is-today .cal__label { text-decoration: underline; }
+
+/* The form: a selected day */
+.cal--form .cal__btn { justify-content: flex-start; }
+.cal--form .cal__btn:disabled { background: none; border-style: dashed; }
+.cal--form .cal__btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.cal--form .cal__btn[aria-pressed="true"] .cal__time { color: inherit; }
+.cal__count { padding: 0 4px; border-radius: 999px; background: var(--surface); color: var(--text); font-weight: 700; }
+
+/* Voting: a day takes the colour of your answer; the best and the chosen day get an outline */
+.cal--vote .cal__day--none .cal__btn { border-style: dashed; border-color: var(--muted); }
+.cal--vote .cal__day--yes .cal__btn { background: var(--success-soft); border-color: var(--success); }
+.cal--vote .cal__day--maybe .cal__btn { background: var(--warn-soft); border-color: var(--warn); }
+.cal--vote .cal__day--no .cal__btn { background: var(--danger-soft); border-color: var(--danger); }
+.cal--vote .is-best .cal__btn { box-shadow: 0 0 0 2px var(--success); }
+.cal--vote .is-decided .cal__btn { box-shadow: 0 0 0 2px var(--accent); }
+.cal__pick .cal__btn { border: 2px solid var(--accent); }
+.htmx-request .cal__btn, .cal__btn.htmx-request, .cal__weekday.htmx-request { opacity: 0.6; }
+
+/* The brush: which answer a tapped day gets */
+.brush { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.brush__label { font-weight: 600; }
+.brush__opt { position: relative; }
+.brush__opt + .brush__opt span { border-left: 1px solid var(--border); }
+.brush__opt input { position: absolute; opacity: 0; }
+.brush__opt span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4rem;
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.brush__opt--yes input:checked + span { background: var(--success); color: var(--surface); font-weight: 700; }
+.brush__opt--maybe input:checked + span { background: var(--warn); color: var(--surface); font-weight: 700; }
+.brush__opt--no input:checked + span { background: var(--danger); color: var(--surface); font-weight: 700; }
+.brush__opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+#fill-rest { margin-bottom: var(--space-2); }
+
+/* "Everyone's answers" under a calendar */
+.everyone { margin-top: var(--space-3); }
+.everyone summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-2); }
 
 /* ---------- Scheduling: voting grid ---------- */
 .your-progress p { margin: 0 0 var(--space-2); }
@@ -980,6 +1080,7 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
   .campaign-card:hover, .history__link:hover { border-color: var(--accent); }
   .campaign-card[class*="accent--"]:hover { border-color: var(--card-accent); box-shadow: 0 0 0 1px var(--card-accent); }
   .vote-btn:not([aria-pressed="true"]):hover { color: var(--text); }
+  button.cal__btn:not(:disabled):hover, .cal__weekday:hover { border-color: var(--accent); }
 }
 
 /* ---------- Precise pointers ---------- */
@@ -987,6 +1088,7 @@ details.callout:not([open]) > summary.callout__title { margin-bottom: 0; }
 @media (pointer: fine) {
   .vote-btn { min-width: 0; min-height: 0; }
   .button--small, .checkbox-list label { min-height: 0; }
-  .inline-form input, .inline-form select, .weekday span, .tabs__tab { padding-block: var(--space-1); }
+  .inline-form input, .inline-form select, .tabs__tab { padding-block: var(--space-1); }
+  .layout-switch__opt span, .brush__opt span, .cal__weekday { min-height: 0; padding-block: var(--space-1); }
   .swatch > span { width: 2rem; height: 2rem; }
 }

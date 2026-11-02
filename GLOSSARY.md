@@ -87,10 +87,11 @@ Undoing a decision: the scheduling poll is open again and the game session it cr
 away. This is only possible while that game session hasn't been touched yet.
 _Avoid_: Undecide, revert
 
-**Regular slot**:
-A campaign's usual playing time (e.g. "Fri and Sat at 18:00, every 2 weeks"). It never schedules
-anything by itself; it only fills in the candidate dates of a new scheduling poll.
-_Avoid_: Pattern, recurrence, recurring session
+**Layout**:
+How a scheduling poll shows its candidate dates, chosen by the GM: **calendar** (week rows with
+at most one candidate date per day; the usual choice) or **list** (one row per candidate date,
+for a few scattered dates or several times on one day).
+_Avoid_: View, mode, poll type
 
 ## Game sessions
 

@@ -87,7 +87,6 @@ async fn non_members_get_404_everywhere(db: SqlitePool) {
         format!("/campaigns/{id}/history"),
         format!("/campaigns/{id}/pages/new"),
         format!("/campaigns/{id}/schedule/new"),
-        format!("/campaigns/{id}/schedule/patterns"),
         format!("/campaigns/{id}/polls/new"),
     ] {
         assert_eq!(
@@ -131,12 +130,7 @@ async fn members_view_but_only_the_gm_manages(db: SqlitePool) {
         member.get(&format!("/campaigns/{id}/edit")).await.status,
         StatusCode::NOT_FOUND
     );
-    for path in [
-        "pages/new",
-        "schedule/new",
-        "schedule/patterns",
-        "polls/new",
-    ] {
+    for path in ["pages/new", "schedule/new", "polls/new"] {
         let r = member.get(&format!("/campaigns/{id}/{path}")).await;
         assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
     }

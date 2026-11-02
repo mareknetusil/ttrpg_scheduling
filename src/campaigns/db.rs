@@ -211,7 +211,6 @@ pub async fn delete(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error
            (SELECT o.id FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id WHERE p.campaign_id = ?)",
         "DELETE FROM schedule_options WHERE poll_id IN (SELECT id FROM schedule_polls WHERE campaign_id = ?)",
         "DELETE FROM schedule_polls WHERE campaign_id = ?",
-        "DELETE FROM schedule_patterns WHERE campaign_id = ?",
         "DELETE FROM game_session_entries WHERE game_session_id IN (SELECT id FROM game_sessions WHERE campaign_id = ?)",
         "DELETE FROM game_session_attendance WHERE game_session_id IN (SELECT id FROM game_sessions WHERE campaign_id = ?)",
         "DELETE FROM game_sessions WHERE campaign_id = ?",

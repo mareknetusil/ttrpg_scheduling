@@ -4,26 +4,25 @@
 {# Context:
      current_user  required (nav)
      campaign      { id, name, ... }
-     form          optional { title, description_md, deadline, options: [string] }: refill after
-                   an error; options and deadline are datetime-local values ("2026-10-24T18:00")
+     form          { title, description_md, layout: "calendar" | "list", deadline,
+                   options: [string] }: the values to show (defaults, the poll being edited, or
+                   a refill after an error); options and deadline are datetime-local values
+                   ("2026-10-24T18:00")
      error         optional string
-     patterns      list of { id, description }: the campaign's regular slots
-     selected_pattern  optional id of the slot the dates were filled from
-     weeks         how many weeks ahead the fill covered (default 3)
+     start_time    "HH:MM": the calendar's start time (the usual time of the form's dates, else of
+                   the campaign's previous poll, else 18:00)
+     today         "YYYY-MM-DD" in the group's time zone: earlier days can't be added
      poll          optional { id, title, ... }: set when editing an open poll
-     votes         optional map datetime-local value → number of answers, for the existing dates
-                   of the poll being edited
+     votes         map datetime-local value → number of answers, for the existing dates of the
+                   poll being edited (empty for a new poll)
 
    Requests:
-     GET  /campaigns/{id}/schedule/new?pattern_id=…&weeks=…   the form with dates from a slot (the
-                                     regular slots page links here)
-     GET  /campaigns/{id}/schedule/slot-dates?pattern_id=…&weeks=…   JSON list of datetime-local
-                                     strings; "Fill" adds them to the date list (Alpine fetch)
-     POST /campaigns/{id}/schedule   fields title, description_md, deadline (may be empty),
-                                     options (repeated, one per candidate date, datetime-local,
-                                     in the display time zone)
-     POST /schedule/{poll_id}        (editing) the same fields; dates matched by time keep their
-                                     answers, changed or removed ones lose them #}
+     POST /campaigns/{id}/schedule   fields title, description_md, layout, deadline (may be
+                                     empty), options (repeated, one per candidate date,
+                                     datetime-local, in the display time zone)
+     POST /schedule/{poll_id}        (editing) the same fields. A calendar matches dates by day:
+                                     a day whose time changed keeps its answers. A list matches
+                                     by exact time. Removed dates lose their answers. #}
 
 {% block title %}{% if poll %}Edit poll{% else %}New scheduling poll{% endif %} · {{ campaign.name }} · TTRPG Scheduling{% endblock %}
 
@@ -33,35 +32,11 @@
   {% if poll %}
   <h1>Edit poll</h1>
   <p class="muted">Add or remove dates, or move the deadline (a later deadline reopens voting).
-    Changing or removing a date deletes its answers.</p>
+    Removing a date deletes its answers.</p>
   {% else %}
   <h1>New scheduling poll</h1>
   <p class="muted">Propose dates; members answer yes, maybe or no for each. You pick the final date.</p>
   {% endif %}
-
-  <div x-data='dateList({{ (form.options if form and form.options else [""])|tojson }}, {{ (votes or {})|tojson }})'>
-  <div class="card inline-form fill-form">
-    {% if patterns %}
-      <label for="pattern_id">Add dates from</label>
-      <select id="pattern_id" x-ref="pattern">
-        {% for p in patterns %}
-          <option value="{{ p.id }}" {% if p.id == selected_pattern %}selected{% endif %}>{{ p.description }}</option>
-        {% endfor %}
-      </select>
-      <label for="weeks">for the next</label>
-      <select id="weeks" x-ref="weeks">
-        {% for n in [1, 2, 3, 4, 6, 8] %}
-          <option value="{{ n }}" {% if n == weeks %}selected{% endif %}>{{ n }} week{% if n > 1 %}s{% endif %}</option>
-        {% endfor %}
-      </select>
-      <button type="button" class="button button--secondary"
-              @click="fill('/campaigns/{{ campaign.id }}/schedule/slot-dates')">Add</button>
-      <a class="small" href="/campaigns/{{ campaign.id }}/schedule/patterns">Edit slots</a>
-      <span class="muted small fill-form__message" role="status" x-text="fillMessage"></span>
-    {% else %}
-      <span class="muted">Tip: set up the group's <a href="/campaigns/{{ campaign.id }}/schedule/patterns">regular slots</a> to add the dates in one click.</span>
-    {% endif %}
-  </div>
 
   <div class="card">
     {% if error %}
@@ -69,37 +44,123 @@
     {% endif %}
 
     <form method="post" class="form"
-          action="{% if poll %}/schedule/{{ poll.id }}{% else %}/campaigns/{{ campaign.id }}/schedule{% endif %}">
+          action="{% if poll %}/schedule/{{ poll.id }}{% else %}/campaigns/{{ campaign.id }}/schedule{% endif %}"
+          x-data='pollForm({{ form.options|tojson }}, {{ votes|tojson }}, {{ form.layout|tojson }}, {{ today|tojson }}, {{ start_time|tojson }})'>
       <div class="field">
         <label for="title">Title</label>
         <input id="title" name="title" type="text" required maxlength="100" autofocus
-               placeholder="Session 12" value="{{ form.title if form else "" }}">
+               placeholder="Session 12" value="{{ form.title }}">
       </div>
 
-      {{ markdown_field("description_md", "Note for the players", form.description_md if form else "", rows=4) }}
+      {{ markdown_field("description_md", "Note for the players", form.description_md, rows=4) }}
 
       <fieldset class="field date-list">
         <legend>Candidate dates</legend>
-        <template x-for="(value, i) in options" :key="i">
-          <div class="date-list__row">
-            <input type="datetime-local" name="options" x-model="options[i]"
-                   :aria-label="'Date ' + (i + 1)" required>
-            <button type="button" class="link-button link-button--danger" @click="remove(i)"
-                    x-show="options.length > 1">Remove</button>
-            <span class="muted small" x-show="votes[value]"
-                  x-text="votes[value] + (votes[value] === 1 ? ' answer' : ' answers')"></span>
+        <div class="layout-switch" role="radiogroup" aria-label="Layout">
+          <label class="layout-switch__opt">
+            <input type="radio" name="layout" value="calendar" x-model="layout" @change="toCalendar()"
+                   {% if form.layout == "calendar" %}checked{% endif %}>
+            <span>Calendar</span>
+          </label>
+          <label class="layout-switch__opt">
+            <input type="radio" name="layout" value="list" x-model="layout" @change="toList()"
+                   {% if form.layout == "list" %}checked{% endif %}>
+            <span>List</span>
+          </label>
+        </div>
+        <p class="muted small" x-show="layout === 'calendar'">Tap days to add them, or a weekday to add
+          all of them. One time per day.{% if poll %} Members keep their answers when you change a
+          day's time; the number on a day is its answers.{% endif %}</p>
+        <p class="muted small" x-show="layout === 'list'" x-cloak>Exact dates and times, for a few
+          scattered dates or several times on one day.</p>
+        <p class="alert alert--error small" role="alert" x-show="switchError" x-text="switchError" x-cloak></p>
+
+        {# Calendar: days on/off; one start time, with optional per-day times #}
+        <div x-show="layout === 'calendar'" x-cloak class="cal-form">
+          <div class="field field--inline">
+            <label for="start_time">Start time</label>
+            <input id="start_time" type="time" x-model="time" required>
+          </div>
+          <table class="cal cal--form">
+            <thead>
+              <tr>
+                <template x-for="(name, i) in weekdayNames" :key="i">
+                  <th scope="col">
+                    <button type="button" class="cal__weekday" :id="'pick-weekday-' + i"
+                            :title="'Add or remove every ' + name" @click="toggleWeekday(i)" x-text="name"></button>
+                  </th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="week in weeks()" :key="week[0].date">
+                <tr>
+                  <template x-for="day in week" :key="day.date">
+                    <td class="cal__day" :class="{ 'is-past': day.past, 'is-today': day.today }">
+                      <button type="button" class="cal__btn" :data-date="day.date"
+                              :aria-pressed="(day.date in days).toString()"
+                              :disabled="day.past && !(day.date in days)"
+                              :aria-label="longDate(day.date)" @click="toggleDay(day.date)">
+                        <span class="cal__label" x-text="day.label"></span>
+                        <span class="cal__time" x-show="days[day.date]" x-text="days[day.date]"></span>
+                        <span class="cal__count" x-show="votesOn(day.date)" x-text="votesOn(day.date)"
+                              :title="votesOn(day.date) + ' answers'"></span>
+                      </button>
+                    </td>
+                  </template>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="row">
+            <button type="button" class="button button--secondary" id="add-week" @click="weekCount++"
+                    :disabled="weekCount >= 10">+ Week</button>
+            <span class="muted small" x-text="selected().length + (selected().length === 1 ? ' date' : ' dates')"></span>
+          </div>
+          <details class="cal-times" x-show="selected().length">
+            <summary>Different time on some days?</summary>
+            <template x-for="d in selected()" :key="d">
+              <div class="cal-times__row">
+                <label :for="'time-' + d" x-text="longDate(d)"></label>
+                <input type="time" :id="'time-' + d" :value="days[d] || time"
+                       @change="days[d] = ($event.target.value === time ? '' : $event.target.value)">
+              </div>
+            </template>
+          </details>
+          <template x-if="layout === 'calendar'">
+            <div>
+              <template x-for="value in calendarValues()" :key="value">
+                <input type="hidden" name="options" :value="value">
+              </template>
+            </div>
+          </template>
+        </div>
+
+        {# List: one datetime-local per date #}
+        <template x-if="layout === 'list'">
+          <div>
+            <template x-for="(value, i) in options" :key="i">
+              <div class="date-list__row">
+                <input type="datetime-local" name="options" x-model="options[i]"
+                       :aria-label="'Date ' + (i + 1)" required>
+                <button type="button" class="link-button link-button--danger" @click="remove(i)"
+                        x-show="options.length > 1">Remove</button>
+                <span class="muted small" x-show="votes[value]"
+                      x-text="votes[value] + (votes[value] === 1 ? ' answer' : ' answers')"></span>
+              </div>
+            </template>
+            <div class="row">
+              <button type="button" class="button button--secondary" id="add-next-day" @click="add(1)">+ Next day</button>
+              <button type="button" class="button button--secondary" id="add-next-week" @click="add(7)">+ Same day next week</button>
+            </div>
           </div>
         </template>
-        <div class="row">
-          <button type="button" class="button button--secondary" @click="add(1)">+ Next day</button>
-          <button type="button" class="button button--secondary" @click="add(7)">+ Same day next week</button>
-        </div>
         <span class="muted small">Times are in the group's time zone.</span>
       </fieldset>
 
       <div class="field">
         <label for="deadline">Vote by <span class="muted">(optional)</span></label>
-        <input id="deadline" name="deadline" type="datetime-local" value="{{ form.deadline if form else "" }}">
+        <input id="deadline" name="deadline" type="datetime-local" value="{{ form.deadline }}">
       </div>
 
       <div class="row">
@@ -113,17 +174,126 @@
       </div>
     </form>
   </div>
-  </div>
 </section>
 
 <script>
-  // Candidate dates: a list of datetime-local strings ("2026-10-24T18:00").
-  // add(days) appends the last date moved by `days`, keeping the time of day.
-  // votes: answers per existing date (editing), shown next to the dates that have any.
-  function dateList(initial, votes) {
-    return {
-      options: initial.length ? initial : [""],
+  // Dates as "YYYY-MM-DD" strings; the arithmetic runs in UTC so DST changes can't shift a day.
+  function addDays(date, n) {
+    const d = new Date(date + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  // 0 = Monday … 6 = Sunday
+  function weekdayOf(date) {
+    return (new Date(date + "T00:00:00Z").getUTCDay() + 6) % 7;
+  }
+  function mondayOf(date) {
+    return addDays(date, -weekdayOf(date));
+  }
+
+  // The candidate dates, in either layout. The form submits one `options` value per date
+  // ("2026-10-24T18:00"): the calendar's from hidden inputs, the list's from its inputs.
+  //   initial  the form's datetime-local values; votes  answers per existing date (editing)
+  //   calendar state: days  {"2026-11-06": "" (the start time) or "14:00" (its own time)},
+  //                   time  the start time, weekCount  rows shown from the first Monday
+  //   list state:     options  the datetime-local values, one row each
+  function pollForm(initial, votes, layout, today, startTime) {
+    const form = {
+      layout,
+      today,
+      time: startTime,
+      days: {},
+      weekCount: 2,
+      start: mondayOf(today),
+      options: initial.length ? [...initial] : [""],
       votes: votes || {},
+      switchError: "",
+      weekdayNames: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+
+      // ---- calendar ----
+      weeks() {
+        const weeks = [];
+        for (let w = 0; w < this.weekCount; w++) {
+          const week = [];
+          for (let i = 0; i < 7; i++) {
+            const date = addDays(this.start, w * 7 + i);
+            const dayNum = Number(date.slice(8));
+            const first = w === 0 && i === 0;
+            week.push({
+              date,
+              label: first || dayNum === 1
+                ? new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
+                : String(dayNum),
+              past: date < this.today,
+              today: date === this.today,
+            });
+          }
+          weeks.push(week);
+        }
+        return weeks;
+      },
+      selected() { return Object.keys(this.days).sort(); },
+      calendarValues() { return this.selected().map((d) => `${d}T${this.days[d] || this.time}`); },
+      toggleDay(date) {
+        if (date in this.days) delete this.days[date];
+        else this.days[date] = "";
+      },
+      // Every day of that weekday from today on, in the weeks shown: all off if they're all on,
+      // otherwise all on
+      toggleWeekday(i) {
+        const dates = this.weeks().map((w) => w[i].date).filter((d) => d >= this.today);
+        const allOn = dates.every((d) => d in this.days);
+        for (const d of dates) {
+          if (allOn) delete this.days[d];
+          else if (!(d in this.days)) this.days[d] = "";
+        }
+      },
+      longDate(date) {
+        return new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+      },
+      votesOn(date) {
+        let n = 0;
+        for (const [value, count] of Object.entries(this.votes)) {
+          if (value.startsWith(date)) n += count;
+        }
+        return n;
+      },
+      // Fills the calendar from datetime-local values. False (and nothing changes) if a day
+      // has two times, which only a list can hold.
+      loadCalendar(values) {
+        const days = {};
+        for (const v of values.filter((v) => v)) {
+          const date = v.slice(0, 10);
+          if (date in days) return false;
+          days[date] = v.slice(11, 16);
+        }
+        for (const d of Object.keys(days)) {
+          if (days[d] === this.time) days[d] = "";
+        }
+        this.days = days;
+        // Start at the earlier of this week and the first date; show every week up to the last
+        const dates = Object.keys(days).sort();
+        this.start = mondayOf(dates.length && dates[0] < this.today ? dates[0] : this.today);
+        const last = dates.length ? dates[dates.length - 1] : this.today;
+        const weeksToLast = Math.floor((Date.parse(mondayOf(last)) - Date.parse(this.start)) / (7 * 864e5)) + 1;
+        this.weekCount = Math.max(2, weeksToLast);
+        return true;
+      },
+      toCalendar() {
+        this.switchError = "";
+        if (!this.loadCalendar(this.options)) {
+          this.layout = "list";
+          this.switchError = "A day has two times, which a calendar can't show. Remove one, or keep the list.";
+        }
+      },
+      toList() {
+        this.switchError = "";
+        const values = this.calendarValues();
+        this.options = values.length ? values : [""];
+      },
+
+      // ---- list ----
+      // add(days) appends the last date moved by `days`, keeping the time of day
       add(days) {
         const last = this.options[this.options.length - 1];
         if (!last) { this.options.push(""); return; }
@@ -133,28 +303,10 @@
         this.options.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
       },
       remove(i) { this.options.splice(i, 1); },
-      // Adds a regular slot's dates (fetched as JSON) to the list, sorted, skipping duplicates
-      // and dropping empty rows.
-      fillMessage: "",
-      async fill(url) {
-        const params = new URLSearchParams({ pattern_id: this.$refs.pattern.value, weeks: this.$refs.weeks.value });
-        let dates;
-        try {
-          const r = await fetch(`${url}?${params}`);
-          dates = await r.json();
-        } catch (e) {
-          this.fillMessage = "Couldn't load the dates. Reload the page and try again.";
-          return;
-        }
-        const kept = this.options.filter((o) => o);
-        const added = dates.filter((d) => !kept.includes(d));
-        const all = kept.concat(added).sort();
-        this.options = all.length ? all : [""];
-        this.fillMessage = dates.length === 0 ? "No dates in that range."
-          : added.length === 0 ? "Those dates are already in the list."
-          : `Added ${added.length} date${added.length === 1 ? "" : "s"}.`;
-      },
     };
+    // A refill with two times on a day (only a crafted request can send that) opens as a list
+    if (layout === "calendar" && !form.loadCalendar(initial)) form.layout = "list";
+    return form;
   }
 </script>
 {% endblock %}

@@ -253,16 +253,6 @@ async fn deleting_a_campaign_needs_its_exact_name(db: SqlitePool) {
     gm.post(&format!("/campaigns/{id}/invites"), &[("max_uses", "2")])
         .await
         .redirect();
-    gm.post(
-        &format!("/campaigns/{id}/schedule/patterns"),
-        &[
-            ("weekdays", "4"),
-            ("start_time", "18:00"),
-            ("every_n_weeks", "1"),
-        ],
-    )
-    .await
-    .redirect();
     let poll = gm
         .post(
             &format!("/campaigns/{id}/schedule"),
@@ -359,7 +349,6 @@ async fn deleting_a_campaign_needs_its_exact_name(db: SqlitePool) {
         ("SELECT COUNT(*) FROM campaign_members", 1),
         ("SELECT COUNT(*) FROM campaign_pages", 1),
         ("SELECT COUNT(*) FROM campaign_invites", 0),
-        ("SELECT COUNT(*) FROM schedule_patterns", 0),
         ("SELECT COUNT(*) FROM schedule_polls", 0),
         ("SELECT COUNT(*) FROM schedule_options", 0),
         ("SELECT COUNT(*) FROM schedule_votes", 0),

@@ -5,7 +5,8 @@
      campaign          { id, name, gm_user_id, ... }
      can_manage        bool: GM or admin (pick a date, cancel)
      can_vote          bool: a member, and voting is open (poll.voting_open)
-     poll              { id, title, status: "open" | "decided" | "cancelled", deadline: When?,
+     poll              { id, title, layout: "calendar" | "list",
+                         status: "open" | "decided" | "cancelled", deadline: When?,
                          voting_open (open and the deadline hasn't passed), decided_option_id?,
                          game_session_id? }
      description_html  sanitized HTML (may be empty)
@@ -14,6 +15,13 @@
                        in members order), mine: answer?, is_best, no_conflicts (every member
                        answered and nobody said no), is_decided }; options whose when.is_past
                        can't be voted on or picked
+     weeks             calendar layout only (else empty): list of weeks, each 7 days (Monday
+                       first) of { date: "2026-11-06", label ("6", or "1 Dec" on the first of a
+                       month and the first day), option: index into options?, is_past, is_today }
+     usual_time        the time most options start at ("18:00"), or none; calendar days show
+                       their time only when it differs
+     weekday_open      7 bools (Monday first): that weekday has an upcoming option, so its
+                       header can answer them all
      upcoming          number of options still in the future
      unanswered        number of upcoming options the current user hasn't answered
      comments          list of comment views (see comments/_comment.html) on this poll; full page
@@ -32,6 +40,11 @@
                                                          `grid` block, swapped over #vote-grid, or
                                                          HX-Refresh if voting closed meanwhile
      DELETE /schedule/{poll_id}/options/{option_id}/vote htmx: clear your answer; same responses
+     PUT  /schedule/{poll_id}/options/{option_id}/paint  htmx (calendar), field answer (the brush):
+                                                         set it, or clear it if the day had it;
+                                                         same responses
+     PUT  /schedule/{poll_id}/weekdays/{0-6}             htmx (calendar), field answer: the same for
+                                                         every upcoming date on that weekday
      PUT  /schedule/{poll_id}/vote-unanswered            htmx, field answer: answer every date you
                                                          haven't answered; same responses
      GET  /schedule/{poll_id}/grid                       htmx, every 60 s while voting is open: the
@@ -49,8 +62,11 @@
 {% set campaign_tab = "overview" %}{% set on_tab = false %}{% include "campaigns/_nav.html" %}
 
 {# picking: the GM's Pick buttons are shown. While voting is open they hide behind "Pick the date",
-   so they don't crowd the voting; afterwards picking is all that's left to do. #}
-<div x-data="{ picking: false }">
+   so they don't crowd the voting; afterwards picking is all that's left to do. In a calendar,
+   picking turns the days into Pick buttons.
+   everyone: the member table under a calendar is open (wide screens start with it open). Both
+   live out here because the grid block is swapped. #}
+<div x-data="{ picking: false, everyone: matchMedia('(min-width: 48rem)').matches }">
 <section class="page-head">
   <div>
     <h1>{{ poll.title }}</h1>
@@ -121,16 +137,40 @@
 {% endif %}
 
 <section class="card">
+  {# The brush (calendar): the answer a tapped day or weekday gets. Outside the grid block, so
+     it keeps its choice when the grid is swapped; the day buttons send it with hx-include. #}
+  {% if can_vote and upcoming and poll.layout == "calendar" %}
+    <div id="brush" class="brush" role="radiogroup" aria-label="The answer a tapped day gets">
+      <span class="brush__label">Tap days to answer</span>
+      <div class="vote-buttons">
+        {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
+          <label class="brush__opt brush__opt--{{ answer }}">
+            <input type="radio" name="answer" value="{{ answer }}" id="brush-{{ answer }}"
+                   {% if answer == "yes" %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   {% block grid %}
   {# While voting is open the grid refreshes itself every minute (other members' answers). #}
   <div id="vote-grid"
        {% if poll.voting_open %}hx-get="/schedule/{{ poll.id }}/grid" hx-trigger="every 60s"
        hx-swap="outerHTML" data-quiet-errors{% endif %}>
+    {% set calendar = poll.layout == "calendar" %}
+    {% set can_pick = can_manage and poll.status == "open" %}
     {% if can_vote and upcoming %}
       <div class="muted small your-progress">
         {% if unanswered %}
           <p>You haven't answered {{ unanswered }} of {{ upcoming }} date{% if upcoming != 1 %}s{% endif %} yet.
-            {% if unanswered < upcoming %}Pick an answer again to clear it.{% endif %}</p>
+            {% if calendar %}Tap a weekday to answer all its dates.{% elif unanswered < upcoming %}Pick an answer again to clear it.{% endif %}</p>
+          {% if calendar %}
+            <button type="button" class="button button--secondary button--small" id="fill-rest"
+                    hx-put="/schedule/{{ poll.id }}/vote-unanswered" hx-include="#brush"
+                    hx-target="#vote-grid" hx-swap="outerHTML">Fill the rest with the brush</button>
+          {% else %}
           <div class="answer-rest">
             <span>Answer {% if unanswered == upcoming %}all{% else %}the rest{% endif %}:</span>
             <div class="vote-buttons" role="group" aria-label="Answer {% if unanswered == upcoming %}all dates{% else %}the dates you haven't answered{% endif %}">
@@ -141,9 +181,10 @@
               {% endfor %}
             </div>
           </div>
+          {% endif %}
         {% else %}
-          <p>You've answered every date. You can change your answers until the GM decides; pick an
-            answer again to clear it.</p>
+          <p>You've answered every date. You can change your answers until the GM decides;
+            {% if calendar %}tap a day again to clear it.{% else %}pick an answer again to clear it.{% endif %}</p>
         {% endif %}
       </div>
     {% endif %}
@@ -159,15 +200,94 @@
         {% endif %}
       </p>
     {% endif %}
+
+    {% if calendar %}
+      <p class="muted small cal-note">
+        {% if usual_time %}Dates start at <strong>{{ usual_time }}</strong> unless a day says otherwise.{% endif %}
+        Numbers: <span class="tally--yes">yes</span> · <span class="tally--maybe">maybe</span> · <span class="tally--no">no</span>.
+        ★ most yes, ✓ no one said no.
+      </p>
+      <table class="cal cal--vote">
+        <thead>
+          <tr>
+            {% for name in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+              <th scope="col">
+                {% if can_vote and weekday_open[loop.index0] %}
+                  <button type="button" class="cal__weekday" id="weekday-{{ loop.index0 }}"
+                          title="Answer every {{ name }} with the brush"
+                          hx-put="/schedule/{{ poll.id }}/weekdays/{{ loop.index0 }}" hx-include="#brush"
+                          hx-target="#vote-grid" hx-swap="outerHTML" x-show="!picking">{{ name }}</button>
+                  <span x-show="picking" x-cloak>{{ name }}</span>
+                {% else %}
+                  {{ name }}
+                {% endif %}
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for week in weeks %}
+            <tr>
+              {% for day in week %}
+                {% if day.option is not none %}
+                  {% set opt = options[day.option] %}
+                  {% set mark %}{% if opt.is_decided %}<span class="cal__mark" title="Chosen">●</span>{% elif poll.status == "open" and opt.no_conflicts %}<span class="cal__mark" title="No one said no">✓</span>{% elif poll.status == "open" and opt.is_best %}<span class="cal__mark" title="Most yes">★</span>{% endif %}{% endset %}
+                  <td class="cal__day cal__day--{{ opt.mine or 'none' }}{% if opt.is_decided %} is-decided{% elif opt.is_best and poll.status == 'open' %} is-best{% endif %}{% if opt.when.is_past %} is-past{% endif %}">
+                    {% set inner %}
+                      <span class="cal__label">{{ day.label }}</span>
+                      {% if opt.when.time != usual_time %}<span class="cal__time">{{ opt.when.time }}</span>{% endif %}
+                      <span class="cal__tally" aria-hidden="true"><span class="tally--yes">{{ opt.yes }}</span> <span class="tally--maybe">{{ opt.maybe }}</span> <span class="tally--no">{{ opt.no }}</span></span>
+                      {{ mark }}
+                      <span class="visually-hidden">{{ opt.when.full }}: {{ opt.yes }} yes, {{ opt.maybe }} maybe, {{ opt.no }} no; you: {{ opt.mine or "no answer" }}</span>
+                    {% endset %}
+                    {% if can_vote and not opt.when.is_past %}
+                      <button type="button" class="cal__btn" id="day-{{ opt.id }}" data-mine="{{ opt.mine or '' }}"
+                              hx-put="/schedule/{{ poll.id }}/options/{{ opt.id }}/paint" hx-include="#brush"
+                              hx-target="#vote-grid" hx-swap="outerHTML" x-show="!picking">{{ inner }}</button>
+                    {% else %}
+                      <div class="cal__btn"{% if can_pick and not opt.when.is_past and poll.voting_open %} x-show="!picking"{% endif %}>{{ inner }}</div>
+                    {% endif %}
+                    {% if can_pick and not opt.when.is_past %}
+                      <form method="post" action="/schedule/{{ poll.id }}/decide" class="pick-form cal__pick"
+                            {% if poll.voting_open %}x-show="picking" x-cloak{% endif %}
+                            data-confirm="Pick {{ opt.when.full }}? This creates the game session (attending: everyone who said yes) and closes the poll."
+                            onsubmit="return confirm(this.dataset.confirm)">
+                        <input type="hidden" name="option_id" value="{{ opt.id }}">
+                        <button type="submit" class="cal__btn">
+                          <span class="cal__label">{{ day.label }}</span>
+                          <span class="cal__pick-label">Pick</span>
+                          <span class="cal__tally" aria-hidden="true"><span class="tally--yes">{{ opt.yes }}</span> <span class="tally--maybe">{{ opt.maybe }}</span> <span class="tally--no">{{ opt.no }}</span></span>
+                          <span class="visually-hidden">{{ opt.when.full }}</span>
+                        </button>
+                      </form>
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td class="cal__day cal__day--empty{% if day.is_past %} is-past{% endif %}">
+                    <span class="cal__label">{{ day.label }}</span>
+                  </td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {# The member table: the whole poll in a list layout; under a calendar, who said what
+       (read-only, the calendar is where you answer and pick) #}
+    {% set table_votes = can_vote and not calendar %}
+    {% if calendar %}<details class="everyone" :open="everyone" @toggle="everyone = $el.open">
+      <summary>Everyone's answers</summary>{% endif %}
     <div class="vote-grid-wrap">
       <table class="vote-grid">
         <thead>
           <tr>
             <th scope="col">Date</th>
-            {% if can_vote %}<th scope="col">Your answer</th>{% endif %}
+            {% if table_votes %}<th scope="col">Your answer</th>{% endif %}
             <th scope="col" class="vote-grid__total">Yes / maybe / no</th>
-            {# Your own column only when you can't vote: otherwise "Your answer" shows it #}
-            {% for m in members if not (can_vote and m.user_id == current_user.id) %}
+            {# Your own column only when you can't vote here: otherwise "Your answer" shows it #}
+            {% for m in members if not (table_votes and m.user_id == current_user.id) %}
               <th scope="col" class="vote-grid__member" title="{{ m.display_name }}">
                 {% if m.user_id == current_user.id %}You{% else %}{{ m.display_name }}{% endif %}
               </th>
@@ -185,7 +305,7 @@
                   {% if opt.no_conflicts and poll.status == "open" %}<span class="badge badge--success">No one said no</span>{% endif %}
                   {% if opt.is_best and poll.status == "open" %}<span class="badge badge--soft">Most yes</span>{% endif %}
                 {% endif %}
-                {% if can_manage and poll.status == "open" and not opt.when.is_past %}
+                {% if can_pick and not calendar and not opt.when.is_past %}
                   <form method="post" action="/schedule/{{ poll.id }}/decide" class="pick-form"
                         {% if poll.voting_open %}x-show="picking" x-cloak{% endif %}
                         data-confirm="Pick {{ opt.when.full }}? This creates the game session (attending: everyone who said yes) and closes the poll."
@@ -195,9 +315,9 @@
                   </form>
                 {% endif %}
               </th>
-              {% if can_vote and opt.when.is_past %}
+              {% if table_votes and opt.when.is_past %}
                 <td class="vote-grid__mine muted small" data-label="Your answer">Past</td>
-              {% elif can_vote %}
+              {% elif table_votes %}
                 <td class="vote-grid__mine" data-label="Your answer">
                   <div class="vote-buttons" role="group" aria-label="Your answer for {{ opt.when.full }}">
                     {% for answer, label in [("yes", "Yes"), ("maybe", "Maybe"), ("no", "No")] %}
@@ -224,7 +344,7 @@
               </td>
               {% for m in members %}
                 {% set answer = opt.cells[loop.index0] %}
-                {% if not (can_vote and m.user_id == current_user.id) %}
+                {% if not (table_votes and m.user_id == current_user.id) %}
                 <td class="cell cell--{{ answer or 'none' }}"
                     data-name="{% if m.user_id == current_user.id %}You{% else %}{{ m.display_name }}{% endif %}"
                     title="{{ m.display_name }}: {{ answer or 'no answer yet' }}">
@@ -238,6 +358,7 @@
         </tbody>
       </table>
     </div>
+    {% if calendar %}</details>{% endif %}
   </div>
   {% endblock %}
 </section>

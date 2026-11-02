@@ -110,9 +110,10 @@ finished. Keep the code simple and explicit so the owner can still read and main
   Partials (`_*.html`) are included by pages and also rendered alone as fragments.
 - `src/markdown.rs`: `render()` (Markdown → sanitized HTML) and `slugify()`.
 - `src/scheduling/`: scheduling polls (`/campaigns/{id}/schedule/new`, `/schedule/{poll_id}`),
-  htmx voting grid (`PUT .../vote` returns the `grid` block), decide → game session.
-  `pattern.rs`: regular slots ("Fri, Sat at 18:00, every week") → candidate dates, with unit
-  tests; managed at `/campaigns/{id}/schedule/patterns`.
+  decide → game session. A poll's `layout` is `calendar` (week rows, one date per day; the
+  voting brush `PUT .../paint` and `.../weekdays/{0-6}`) or `list` (the voting grid,
+  `PUT .../vote`). Both answer with the `grid` block of `schedule/show.html`. `model.rs` has
+  `calendar_weeks` and `usual_time`, with unit tests.
 - `src/game_sessions/`: game sessions (`/sessions/{id}`: edit, attendance, entries), entries
   (`/entries/{id}`), history (`/campaigns/{id}/history`), upcoming lists for dashboard/campaign,
   and adding a session without a poll (`/campaigns/{id}/sessions/new`). `db::renumber` keeps

@@ -269,18 +269,20 @@ async fn new_poll_date_list_and_markdown_preview(db: SqlitePool) {
         .await
         .unwrap();
 
-    // Date list (Alpine): set the first date, add the same day next week
+    // Date list (Alpine): switch to the list layout, set the first date, add the same day next
+    // week
+    b.el(".layout-switch__opt:nth-child(2) span")
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el("input[type=datetime-local][name=options]").await;
     b.js::<serde_json::Value>(
         "const i = document.querySelector('input[name=options]');
          i.value = '2030-01-10T18:00'; i.dispatchEvent(new Event('input')); return null;",
     )
     .await;
-    let buttons = b
-        .driver
-        .find_all(By::Css(".date-list .row button"))
-        .await
-        .unwrap();
-    buttons[1].click().await.unwrap(); // "+ Same day next week"
+    b.el("#add-next-week").await.click().await.unwrap();
     b.el("input[name=options]:nth-of-type(1)").await;
     let values: Vec<String> = b
         .js("return [...document.querySelectorAll('input[name=options]')].map(i => i.value);")
@@ -567,64 +569,147 @@ async fn edit_poll_shows_answers_per_date(db: SqlitePool) {
 
 #[sqlx::test]
 #[ignore = "needs Firefox and geckodriver"]
-async fn slot_dates_are_added_in_place(db: SqlitePool) {
+async fn calendar_form_adds_weekdays(db: SqlitePool) {
     let app = spawn_app(db).await;
     let gm = app.user("gina").await;
     let id = gm.create_campaign("Camp").await;
-    gm.post(
-        &format!("/campaigns/{id}/schedule/patterns"),
-        &[
-            ("weekdays", "5"),
-            ("start_time", "18:00"),
-            ("every_n_weeks", "1"),
-        ],
-    )
-    .await
-    .redirect();
 
     let b = Browser::start(&app).await;
     b.login("gina").await;
     b.goto(&format!("/campaigns/{id}/schedule/new")).await;
-    b.mark_page().await;
-    b.el("#title").await.clear().await.unwrap();
-    b.el("#title").await.send_keys("Kept title").await.unwrap();
+    let options = async || -> Vec<String> {
+        b.js("return [...document.querySelectorAll('input[name=options]')].map(i => i.value);")
+            .await
+    };
+    // Two weeks; Sunday is the last day of a week, so this week's is never past
+    b.el("#pick-weekday-6").await.click().await.unwrap();
+    assert_eq!(options().await.len(), 2);
+    b.el("#add-week").await.click().await.unwrap();
+    b.el("#pick-weekday-6").await.click().await.unwrap();
+    let sundays = options().await;
+    assert_eq!(sundays.len(), 3, "not all were on, so all are now");
+    assert!(sundays.iter().all(|v| v.ends_with("T18:00")), "{sundays:?}");
+    b.el("#pick-weekday-6").await.click().await.unwrap();
+    assert!(options().await.is_empty(), "all were on: all off");
+
+    // single days, the start time, and one day's own time
+    b.el("#pick-weekday-6").await.click().await.unwrap();
     b.js::<serde_json::Value>(
-        "const i = document.querySelector('input[name=options]');
-         i.value = '2099-01-01T18:00'; i.dispatchEvent(new Event('input')); return null;",
+        "const t = document.getElementById('start_time');
+         t.value = '19:30'; t.dispatchEvent(new Event('input')); return null;",
     )
     .await;
-    b.js::<serde_json::Value>("document.getElementById('weeks').value = '2'; return null;")
-        .await;
-    b.el(".fill-form button").await.click().await.unwrap();
-    b.driver
-        .query(By::XPath(
-            "//*[contains(@class, 'fill-form__message')][starts-with(., 'Added ')]",
-        ))
-        .first()
+    let last = sundays[2][..10].to_string();
+    b.el(&format!(".cal--form button[data-date='{last}']"))
+        .await
+        .click()
         .await
         .unwrap();
-    let values: Vec<String> = b
-        .js("return [...document.querySelectorAll('input[name=options]')].map(i => i.value);")
-        .await;
-    // the next Saturdays (1 or 2, depending on today), then the typed date (sorted); the title
-    // is untouched
-    assert!((2..=3).contains(&values.len()), "{values:?}");
-    assert_eq!(values.last().unwrap(), "2099-01-01T18:00");
-    assert_eq!(
-        b.el("#title").await.prop("value").await.unwrap().as_deref(),
-        Some("Kept title")
+    let values = options().await;
+    assert_eq!(values.len(), 2);
+    assert!(values.iter().all(|v| v.ends_with("T19:30")), "{values:?}");
+    b.el(".cal-times summary").await.click().await.unwrap();
+    b.js::<serde_json::Value>(
+        "const t = document.querySelector('.cal-times__row input');
+         t.value = '14:00'; t.dispatchEvent(new Event('change')); return null;",
+    )
+    .await;
+    let values = options().await;
+    assert!(
+        values[0].ends_with("T14:00") && values[1].ends_with("T19:30"),
+        "{values:?}"
     );
-    assert!(b.still_same_page().await);
 
-    // adding again changes nothing
-    b.el(".fill-form button").await.click().await.unwrap();
-    b.driver
-        .query(By::XPath(
-            "//*[contains(@class, 'fill-form__message')][contains(., 'already in the list')]",
-        ))
-        .first()
+    // to the list and back keeps the dates
+    b.el(".layout-switch__opt:nth-child(2) span")
+        .await
+        .click()
         .await
         .unwrap();
+    b.el("input[type=datetime-local][name=options]").await;
+    assert_eq!(options().await, values);
+    b.el(".layout-switch__opt:nth-child(1) span")
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el("input[type=hidden][name=options]").await;
+    assert_eq!(options().await, values);
+
+    b.el("form[action$='/schedule'] button[type=submit]")
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el(".cal--vote").await;
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM schedule_polls WHERE layout = 'calendar'")
+            .await,
+        1
+    );
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM schedule_options").await, 2);
+    b.quit().await;
+}
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn the_brush_paints_in_place(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let poll = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S1"),
+                ("layout", "calendar"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-11T18:00"),
+                ("options", "2030-01-17T18:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let first = app.scalar("SELECT MIN(id) FROM schedule_options").await;
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    b.goto(&format!("/schedule/{poll}")).await;
+    b.mark_page().await;
+    // Yes is the brush to start with
+    b.el(&format!("#day-{first}")).await.click().await.unwrap();
+    b.el(&format!("#day-{first}[data-mine='yes']")).await;
+    // Maybe: the brush keeps its choice through the swaps
+    b.el("label.brush__opt--maybe span")
+        .await
+        .click()
+        .await
+        .unwrap();
+    b.el("#weekday-3").await.click().await.unwrap(); // both Thursdays
+    b.el(&format!("#day-{first}[data-mine='maybe']")).await;
+    b.el(&format!("#day-{first}")).await.click().await.unwrap();
+    b.el(&format!("#day-{first}[data-mine='']")).await;
+    assert!(b.el("#brush-maybe").await.is_selected().await.unwrap());
+    // fill the rest with the brush
+    b.el("#fill-rest").await.click().await.unwrap();
+    b.el(&format!("#day-{first}[data-mine='maybe']")).await;
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM schedule_votes WHERE answer = 'maybe'")
+            .await,
+        3
+    );
+    // "Pick the date" turns the days into Pick buttons
+    assert!(!b.el(".cal__pick").await.is_displayed().await.unwrap());
+    b.el("#pick-toggle").await.click().await.unwrap();
+    assert!(b.el(".cal__pick").await.is_displayed().await.unwrap());
+    assert!(
+        !b.el(&format!("#day-{first}"))
+            .await
+            .is_displayed()
+            .await
+            .unwrap()
+    );
+    assert!(b.still_same_page().await, "htmx swaps, not page loads");
     b.quit().await;
 }
 
@@ -694,6 +779,18 @@ async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
         )
         .await
         .redirect_id("/schedule/");
+    let calendar = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[
+                ("title", "S3"),
+                ("layout", "calendar"),
+                ("options", "2030-01-10T18:00"),
+                ("options", "2030-01-13T14:00"),
+            ],
+        )
+        .await
+        .redirect_id("/schedule/");
     let session = gm
         .post(
             &format!("/campaigns/{id}/sessions"),
@@ -713,6 +810,8 @@ async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
         format!("/campaigns/{id}/history"),
         format!("/campaigns/{id}/members"),
         format!("/schedule/{poll}"),
+        format!("/schedule/{calendar}"),
+        format!("/campaigns/{id}/schedule/new"),
         format!("/sessions/{session}"),
     ] {
         b.goto(&path).await;

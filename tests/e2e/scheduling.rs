@@ -33,6 +33,13 @@ async fn new_poll_validation(db: SqlitePool) {
     let path = format!("/campaigns/{id}/schedule");
     let r = gm.get(&format!("{path}/new")).await;
     assert_eq!(r.ok().attr("#title", "value").as_deref(), Some("Session 1"));
+    // a new poll starts as a calendar, at 18:00 (no previous poll)
+    let alpine = r.attr("form.form", "x-data").unwrap();
+    assert!(
+        alpine.starts_with(r#"pollForm([], {}, "calendar", ""#),
+        "{alpine}"
+    );
+    assert!(alpine.ends_with(r#", "18:00")"#), "{alpine}");
 
     let r = gm.post(&path, &[("title", "S1"), ("options", "")]).await;
     assert_eq!(r.error(), "Add at least one date.");
@@ -40,8 +47,12 @@ async fn new_poll_validation(db: SqlitePool) {
         .post(&path, &[("title", "S1"), ("options", "2026-11-01T25:00")])
         .await;
     assert!(r.error().contains("isn't a valid date and time"));
-    // the entered dates come back to Alpine as JSON
-    assert!(r.body.contains(r#"dateList(["2026-11-01T25:00"], {})"#));
+    // the entered dates come back to Alpine as JSON; a form without a layout is a list
+    assert!(
+        r.attr("form.form", "x-data")
+            .unwrap()
+            .starts_with(r#"pollForm(["2026-11-01T25:00"], {}, "list", "#)
+    );
 }
 
 #[sqlx::test]
@@ -217,85 +228,308 @@ async fn outsiders_and_site_admins(db: SqlitePool) {
     assert!(!mark.get("/").await.has("#to-vote"));
 }
 
+/// A calendar poll for 2030: Thu 10 and Fri 11 Jan at 18:00, Sun 13 Jan at 14:00 (one week).
+async fn calendar_poll(gm: &User, campaign: i64) -> i64 {
+    gm.post(
+        &format!("/campaigns/{campaign}/schedule"),
+        &[
+            ("title", "S1"),
+            ("layout", "calendar"),
+            ("options", "2030-01-10T18:00"),
+            ("options", "2030-01-11T18:00"),
+            ("options", "2030-01-13T14:00"),
+        ],
+    )
+    .await
+    .redirect_id("/schedule/")
+}
+
+async fn paint(user: &User, poll: i64, option: i64, answer: &str) -> crate::common::Resp {
+    let path = format!("/schedule/{poll}/options/{option}/paint");
+    user.put(&path, &[("answer", answer)]).await
+}
+
+async fn answers(app: &TestApp, user: &User) -> Vec<(i64, String)> {
+    sqlx::query_as(
+        "SELECT option_id, answer FROM schedule_votes WHERE user_id = ? ORDER BY option_id",
+    )
+    .bind(user.id)
+    .fetch_all(&app.db)
+    .await
+    .unwrap()
+}
+
 #[sqlx::test]
-async fn regular_slots_fill_a_new_poll(db: SqlitePool) {
+async fn calendar_poll_shows_weeks(db: SqlitePool) {
     let app = spawn_app(db).await;
     let (id, gm, mark, _) = setup(&app).await;
-    let path = format!("/campaigns/{id}/schedule/patterns");
-    gm.get(&path).await.ok();
-    assert_eq!(mark.get(&path).await.status, StatusCode::NOT_FOUND);
+    let poll = calendar_poll(&gm, id).await;
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM schedule_polls WHERE layout = 'calendar'")
+            .await,
+        1
+    );
 
-    let r = gm
-        .post(&path, &[("start_time", "18:00"), ("every_n_weeks", "1")])
-        .await;
-    assert_eq!(r.error(), "Pick at least one day of the week.");
+    let r = mark.get(&format!("/schedule/{poll}")).await;
+    // one week, Mon 7 to Sun 13 Jan; the usual time once, the other time on its day
+    assert_eq!(r.ok().count(".cal--vote tbody tr"), 1);
+    assert_eq!(
+        r.texts(".cal--vote tbody .cal__label"),
+        ["7 Jan", "8", "9", "10", "11", "12", "13"]
+    );
+    assert_eq!(r.text(".cal-note strong"), "18:00");
+    assert_eq!(r.texts(".cal--vote .cal__time"), ["14:00"]);
+    assert_eq!(r.count(".cal__day--empty"), 4);
+    // the brush starts on yes; only weekdays with dates can be tapped
+    assert_eq!(r.attr("#brush-yes", "checked").as_deref(), Some(""));
+    assert!(r.has("#fill-rest"));
+    for (weekday, tappable) in [(0, false), (3, true), (4, true), (6, true)] {
+        assert_eq!(r.has(&format!("#weekday-{weekday}")), tappable, "{weekday}");
+    }
+    // under it, everyone's answers, read-only (your own column too)
+    assert!(r.has("details.everyone .vote-grid"));
+    assert!(!r.has(".vote-grid .vote-btn"));
+    assert_eq!(r.texts(".vote-grid__member"), ["Gina", "You", "Nina"]);
+    assert!(!r.has(".cal__pick"), "only the GM picks");
+
+    // the GM picks in the calendar (behind "Pick the date" while voting is open)
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert_eq!(r.ok().count(".cal__pick"), 3);
+    assert_eq!(r.count(".vote-grid .pick-form"), 0);
+    assert_eq!(r.attr(".cal__pick", "x-show").as_deref(), Some("picking"));
+
+    // a site admin who isn't a member sees the calendar without buttons
+    let ada = app.admin("ada").await;
+    let r = ada.get(&format!("/schedule/{poll}")).await;
+    assert!(r.ok().has(".cal--vote"));
+    assert!(!r.has("#brush"));
+    assert!(!r.has("button.cal__btn"));
+
+    // a calendar has one time per day
     let r = gm
         .post(
-            &path,
+            &format!("/campaigns/{id}/schedule"),
             &[
-                ("weekdays", "4"),
-                ("weekdays", "5"),
-                ("start_time", "18:00"),
-                ("every_n_weeks", "1"),
+                ("title", "S2"),
+                ("layout", "calendar"),
+                ("options", "2030-01-10T14:00"),
+                ("options", "2030-01-10T19:00"),
             ],
         )
         .await;
-    assert_eq!(r.redirect(), path);
-    assert_eq!(
-        gm.get(&path).await.text(".member__name"),
-        "Fri, Sat at 18:00, every week"
+    assert!(r.error().starts_with("Thu 10 Jan has two times."));
+    // the form comes back as a calendar
+    assert!(
+        r.attr("form.form", "x-data")
+            .unwrap()
+            .contains(r#"}, "calendar", "#)
     );
+}
 
-    let pattern = app.scalar("SELECT id FROM schedule_patterns").await;
-    let r = gm
-        .get(&format!(
-            "/campaigns/{id}/schedule/new?pattern_id={pattern}&weeks=2"
-        ))
-        .await;
-    // two weeks of Fridays and Saturdays: 3 or 4 dates depending on today's weekday and time
-    let alpine = r.ok().attr("[x-data^=dateList]", "x-data").unwrap();
-    let dates_in_form = alpine.matches("T18:00").count();
-    assert!((3..=4).contains(&dates_in_form), "{alpine}");
+#[sqlx::test]
+async fn the_brush_paints_days_and_weekdays(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = calendar_poll(&gm, id).await;
+    let opts = option_ids(&app, poll).await;
 
-    // the same dates as JSON, for the form's "Add" button
-    let json = format!("/campaigns/{id}/schedule/slot-dates?pattern_id={pattern}&weeks=2");
-    let r = gm.get(&json).await;
-    let dates: Vec<String> = serde_json::from_str(&r.ok().body).unwrap();
-    assert_eq!(dates.len(), dates_in_form);
-    assert!(dates.iter().all(|d| d.ends_with("T18:00")));
-    assert_eq!(mark.get(&json).await.status, StatusCode::NOT_FOUND);
-    assert_eq!(
-        gm.get(&format!("/campaigns/{id}/schedule/slot-dates"))
-            .await
-            .status,
-        StatusCode::BAD_REQUEST
+    // a day: set, change, and the same answer again clears it
+    let r = paint(&mark, poll, opts[0], "yes").await;
+    assert!(
+        r.ok()
+            .body
+            .trim_start()
+            .starts_with("<div id=\"vote-grid\"")
     );
-
-    let other = gm.create_campaign("Other").await;
     assert_eq!(
-        gm.get(&format!(
-            "/campaigns/{other}/schedule/slot-dates?pattern_id={pattern}"
-        ))
+        r.attr(&format!("#day-{}", opts[0]), "data-mine").as_deref(),
+        Some("yes")
+    );
+    assert_eq!(answers(&app, &mark).await, [(opts[0], "yes".into())]);
+    paint(&mark, poll, opts[0], "maybe").await.ok();
+    assert_eq!(answers(&app, &mark).await, [(opts[0], "maybe".into())]);
+    let r = paint(&mark, poll, opts[0], "maybe").await;
+    assert_eq!(
+        r.ok()
+            .attr(&format!("#day-{}", opts[0]), "data-mine")
+            .as_deref(),
+        Some("")
+    );
+    assert!(answers(&app, &mark).await.is_empty());
+
+    // a weekday (4 = Friday): all its dates, and again clears them
+    let friday = format!("/schedule/{poll}/weekdays/4");
+    mark.put(&friday, &[("answer", "no")]).await.ok();
+    assert_eq!(answers(&app, &mark).await, [(opts[1], "no".into())]);
+    mark.put(&friday, &[("answer", "no")]).await.ok();
+    assert!(answers(&app, &mark).await.is_empty());
+    // a weekday without dates is harmless: nothing to answer, so the page reloads
+    assert!(
+        mark.put(
+            &format!("/schedule/{poll}/weekdays/0"),
+            &[("answer", "yes")]
+        )
+        .await
+        .ok()
+        .hx_refresh
+    );
+    assert_eq!(
+        mark.put(
+            &format!("/schedule/{poll}/weekdays/7"),
+            &[("answer", "yes")]
+        )
         .await
         .status,
         StatusCode::NOT_FOUND
     );
-    let r = gm
-        .get(&format!(
-            "/campaigns/{other}/schedule/new?pattern_id={pattern}"
-        ))
+
+    // fill the rest with the brush: only the unanswered days
+    paint(&mark, poll, opts[0], "yes").await.ok();
+    let r = mark
+        .put(
+            &format!("/schedule/{poll}/vote-unanswered"),
+            &[("answer", "maybe")],
+        )
         .await;
+    assert!(
+        r.ok()
+            .text(".your-progress")
+            .starts_with("You've answered every date.")
+    );
     assert_eq!(
-        r.status,
-        StatusCode::NOT_FOUND,
-        "a slot of another campaign"
+        answers(&app, &mark).await,
+        [
+            (opts[0], "yes".into()),
+            (opts[1], "maybe".into()),
+            (opts[2], "maybe".into())
+        ]
     );
 
-    assert_eq!(gm.delete(&format!("{path}/{pattern}")).await.ok().body, "");
+    // the calendar shows the counts and markers: one yes on the 10th, the most
+    let r = gm.get(&format!("/schedule/{poll}")).await;
+    assert!(r.ok().has(".cal__day.is-best"));
+    assert_eq!(r.text(".cal__day.is-best .cal__mark"), "★");
+
+    // outsiders, admins who aren't members, unknown or other polls' dates
+    let olga = app.user("olga").await;
     assert_eq!(
-        gm.delete(&format!("{path}/{pattern}")).await.status,
+        paint(&olga, poll, opts[0], "yes").await.status,
         StatusCode::NOT_FOUND
     );
+    let ada = app.admin("ada").await;
+    assert_eq!(
+        paint(&ada, poll, opts[0], "yes").await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        ada.put(&friday, &[("answer", "yes")]).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        paint(&mark, poll, 9999, "yes").await.status,
+        StatusCode::NOT_FOUND
+    );
+    let other = calendar_poll(&gm, id).await;
+    let other_opt = option_ids(&app, other).await[0];
+    assert_eq!(
+        paint(&mark, poll, other_opt, "yes").await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    // once voting closes, a tap reloads the page
+    gm.post(&format!("/schedule/{poll}/cancel"), &[])
+        .await
+        .redirect();
+    assert!(paint(&mark, poll, opts[0], "no").await.ok().hx_refresh);
+    assert!(mark.put(&friday, &[("answer", "no")]).await.ok().hx_refresh);
+    assert_eq!(answers(&app, &mark).await[0], (opts[0], "yes".into()));
+}
+
+#[sqlx::test]
+async fn editing_a_calendar_keeps_answers_by_day(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let (id, gm, mark, _) = setup(&app).await;
+    let poll = calendar_poll(&gm, id).await;
+    let opts = option_ids(&app, poll).await;
+    for opt in &opts {
+        paint(&mark, poll, *opt, "yes").await.ok();
+    }
+
+    let edit = format!("/schedule/{poll}/edit");
+    let alpine = gm
+        .get(&edit)
+        .await
+        .ok()
+        .attr("form.form", "x-data")
+        .unwrap();
+    assert!(alpine.contains(r#"}, "calendar", "#), "{alpine}");
+    assert!(
+        alpine.ends_with(r#", "18:00")"#),
+        "the usual time: {alpine}"
+    );
+
+    // the 10th moves to 19:00, the 11th goes, the 12th is new, the 13th stays
+    let save = format!("/schedule/{poll}");
+    gm.post(
+        &save,
+        &[
+            ("title", "S1"),
+            ("layout", "calendar"),
+            ("options", "2030-01-10T19:00"),
+            ("options", "2030-01-12T18:00"),
+            ("options", "2030-01-13T14:00"),
+        ],
+    )
+    .await
+    .redirect();
+    let new_opts = option_ids(&app, poll).await;
+    assert_eq!(new_opts.len(), 3);
+    assert_eq!(new_opts[0], opts[0], "the moved day keeps its date");
+    assert_eq!(new_opts[2], opts[2]);
+    assert_eq!(
+        answers(&app, &mark).await,
+        [(opts[0], "yes".into()), (opts[2], "yes".into())]
+    );
+    // three different times: the tie goes to the first date's 19:00, the others show theirs
+    let r = mark.get(&save).await;
+    assert_eq!(r.ok().text(".cal-note strong"), "19:00");
+    assert_eq!(r.texts(".cal--vote .cal__time"), ["18:00", "14:00"]);
+
+    // switched to a list: matched by the exact time, so moving the 10th again loses its answer
+    gm.post(
+        &save,
+        &[
+            ("title", "S1"),
+            ("layout", "list"),
+            ("options", "2030-01-10T20:00"),
+            ("options", "2030-01-10T21:00"),
+            ("options", "2030-01-13T14:00"),
+        ],
+    )
+    .await
+    .redirect();
+    assert_eq!(answers(&app, &mark).await, [(opts[2], "yes".into())]);
+    assert!(mark.get(&save).await.ok().has(".vote-grid .vote-btn"));
+    // back to a calendar is refused while a day has two times
+    let r = gm
+        .post(
+            &save,
+            &[
+                ("title", "S1"),
+                ("layout", "calendar"),
+                ("options", "2030-01-10T20:00"),
+                ("options", "2030-01-10T21:00"),
+            ],
+        )
+        .await;
+    assert!(r.error().contains("has two times"));
+    assert_eq!(r.attr("form.form", "action"), Some(save.clone()));
+
+    // a new poll starts at the previous poll's usual time (20:00, 21:00, 14:00: a tie, so the
+    // first date's)
+    let r = gm.get(&format!("/campaigns/{id}/schedule/new")).await;
+    let alpine = r.ok().attr("form.form", "x-data").unwrap();
+    assert!(alpine.ends_with(r#", "20:00")"#), "{alpine}");
 }
 
 #[sqlx::test]
@@ -482,10 +716,12 @@ async fn edit_an_open_poll(db: SqlitePool) {
         r.attr("#deadline", "value").as_deref(),
         Some("2020-01-01T20:00")
     );
-    let alpine = r.attr("[x-data^=dateList]", "x-data").unwrap();
-    assert_eq!(
-        alpine,
-        r#"dateList(["2030-01-10T18:00", "2030-01-11T18:00"], {"2030-01-10T18:00": 2, "2030-01-11T18:00": 1})"#
+    let alpine = r.attr("form.form", "x-data").unwrap();
+    assert!(
+        alpine.starts_with(
+            r#"pollForm(["2030-01-10T18:00", "2030-01-11T18:00"], {"2030-01-10T18:00": 2, "2030-01-11T18:00": 1}, "list", "#
+        ),
+        "{alpine}"
     );
 
     // errors re-render the edit form

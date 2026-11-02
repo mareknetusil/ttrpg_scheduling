@@ -1,7 +1,8 @@
-use super::model::{
-    Answer, NewPattern, NewPoll, OptionRow, PatternRow, Poll, PollStatus, PollSummary, VoteRow,
-};
+use super::model::{Answer, Layout, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow};
+use crate::time;
+use chrono_tz::Tz;
 use sqlx::sqlite::{SqliteConnection, SqlitePool};
+use std::collections::HashMap;
 
 pub async fn create(
     db: &SqlitePool,
@@ -11,10 +12,12 @@ pub async fn create(
 ) -> Result<i64, sqlx::Error> {
     let mut tx = db.begin().await?;
     let poll_id = sqlx::query!(
-        "INSERT INTO schedule_polls (campaign_id, title, description_md, deadline_at, created_by) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO schedule_polls (campaign_id, title, description_md, layout, deadline_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)",
         campaign_id,
         poll.title,
         poll.description_md,
+        poll.layout,
         poll.deadline_at,
         user_id
     )
@@ -37,7 +40,8 @@ pub async fn create(
 pub async fn get(db: &SqlitePool, poll_id: i64) -> Result<Option<Poll>, sqlx::Error> {
     sqlx::query_as!(
         Poll,
-        r#"SELECT id, campaign_id, title, description_md, status AS "status: PollStatus",
+        r#"SELECT id, campaign_id, title, description_md, layout AS "layout: Layout",
+                  status AS "status: PollStatus",
                   deadline_at, decided_option_id, game_session_id
            FROM schedule_polls WHERE id = ?"#,
         poll_id
@@ -96,16 +100,24 @@ pub async fn set_vote(
     Ok(result.rows_affected() > 0)
 }
 
-/// Saves an edited open poll. Options are matched by their time: unchanged ones keep their votes,
-/// removed ones are deleted together with their votes, new ones are added. Returns false if the
-/// poll isn't open (any more).
-pub async fn update(db: &SqlitePool, poll_id: i64, poll: &NewPoll) -> Result<bool, sqlx::Error> {
+/// Saves an edited open poll. Existing options are matched to the new ones: by their exact time
+/// in a list poll, by their day (in `tz`) in a calendar poll, so a day whose time moved keeps its
+/// answers. Matched ones keep their votes (and get the new time), unmatched old ones are deleted
+/// together with their votes, unmatched new ones are added. Returns false if the poll isn't open
+/// (any more).
+pub async fn update(
+    db: &SqlitePool,
+    poll_id: i64,
+    poll: &NewPoll,
+    tz: Tz,
+) -> Result<bool, sqlx::Error> {
     let mut tx = db.begin().await?;
     let updated = sqlx::query!(
-        "UPDATE schedule_polls SET title = ?, description_md = ?, deadline_at = ?
+        "UPDATE schedule_polls SET title = ?, description_md = ?, layout = ?, deadline_at = ?
          WHERE id = ? AND status = 'open'",
         poll.title,
         poll.description_md,
+        poll.layout,
         poll.deadline_at,
         poll_id
     )
@@ -114,33 +126,56 @@ pub async fn update(db: &SqlitePool, poll_id: i64, poll: &NewPoll) -> Result<boo
     if updated.rows_affected() == 0 {
         return Ok(false);
     }
+    let match_key = |starts_at: &str| match poll.layout {
+        Layout::List => starts_at.to_string(),
+        Layout::Calendar => match time::from_db(starts_at) {
+            Some(t) => t.with_timezone(&tz).date_naive().to_string(),
+            None => starts_at.to_string(),
+        },
+    };
+    // key -> the new time; a key is removed once an existing option took it
+    let mut unmatched: HashMap<String, &String> =
+        poll.options.iter().map(|o| (match_key(o), o)).collect();
     let existing = sqlx::query_as!(
         OptionRow,
-        "SELECT id, starts_at FROM schedule_options WHERE poll_id = ?",
+        "SELECT id, starts_at FROM schedule_options WHERE poll_id = ? ORDER BY starts_at",
         poll_id
     )
     .fetch_all(&mut *tx)
     .await?;
+    let mut moved = Vec::new();
     for option in &existing {
-        if !poll.options.contains(&option.starts_at) {
-            sqlx::query!("DELETE FROM schedule_votes WHERE option_id = ?", option.id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query!("DELETE FROM schedule_options WHERE id = ?", option.id)
-                .execute(&mut *tx)
-                .await?;
+        match unmatched.remove(&match_key(&option.starts_at)) {
+            Some(starts_at) if *starts_at != option.starts_at => moved.push((option.id, starts_at)),
+            Some(_) => {}
+            None => {
+                sqlx::query!("DELETE FROM schedule_votes WHERE option_id = ?", option.id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query!("DELETE FROM schedule_options WHERE id = ?", option.id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
         }
     }
-    for starts_at in &poll.options {
-        if !existing.iter().any(|o| &o.starts_at == starts_at) {
-            sqlx::query!(
-                "INSERT INTO schedule_options (poll_id, starts_at) VALUES (?, ?)",
-                poll_id,
-                starts_at
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+    // After the deletes, so a moved time can't collide with a removed option's (UNIQUE)
+    for (option_id, starts_at) in moved {
+        sqlx::query!(
+            "UPDATE schedule_options SET starts_at = ? WHERE id = ?",
+            starts_at,
+            option_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    for starts_at in unmatched.into_values() {
+        sqlx::query!(
+            "INSERT INTO schedule_options (poll_id, starts_at) VALUES (?, ?)",
+            poll_id,
+            starts_at
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(true)
@@ -190,6 +225,80 @@ pub async fn set_unanswered(
     )
     .execute(db)
     .await?;
+    Ok(true)
+}
+
+/// The brush of a calendar poll: gives `answer` to each option in `option_ids` (one day, or every
+/// day of a weekday), or, if they all have that answer already, clears them, so tapping a
+/// painted day again undoes it. Only this poll's future options count. Like `set_vote`, only
+/// while voting is open; returns false (and changes nothing) if it isn't, or if none of the
+/// options can be voted on.
+pub async fn paint(
+    db: &SqlitePool,
+    poll_id: i64,
+    user_id: i64,
+    option_ids: &[i64],
+    answer: Answer,
+) -> Result<bool, sqlx::Error> {
+    let open = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_polls
+           WHERE id = ? AND status = 'open'
+             AND (deadline_at IS NULL OR deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"#,
+        poll_id
+    )
+    .fetch_one(db)
+    .await?;
+    if open == 0 {
+        return Ok(false);
+    }
+    let mut targets = Vec::new();
+    let mut all_have_it = true;
+    for option_id in option_ids {
+        let Some(row) = sqlx::query!(
+            r#"SELECT v.answer AS "answer?: Answer"
+               FROM schedule_options AS o
+               LEFT JOIN schedule_votes AS v ON v.option_id = o.id AND v.user_id = ?
+               WHERE o.id = ? AND o.poll_id = ?
+                 AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"#,
+            user_id,
+            option_id,
+            poll_id
+        )
+        .fetch_optional(db)
+        .await?
+        else {
+            continue;
+        };
+        all_have_it = all_have_it && row.answer == Some(answer);
+        targets.push(*option_id);
+    }
+    if targets.is_empty() {
+        return Ok(false);
+    }
+    let mut tx = db.begin().await?;
+    for option_id in &targets {
+        if all_have_it {
+            sqlx::query!(
+                "DELETE FROM schedule_votes WHERE option_id = ? AND user_id = ?",
+                option_id,
+                user_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "INSERT INTO schedule_votes (option_id, user_id, answer) VALUES (?, ?, ?)
+                 ON CONFLICT (option_id, user_id) DO UPDATE
+                 SET answer = excluded.answer, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+                option_id,
+                user_id,
+                answer
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
     Ok(true)
 }
 
@@ -420,65 +529,18 @@ pub async fn next_session_number(db: &SqlitePool, campaign_id: i64) -> Result<i6
     .await
 }
 
-pub async fn patterns(db: &SqlitePool, campaign_id: i64) -> Result<Vec<PatternRow>, sqlx::Error> {
-    sqlx::query_as!(
-        PatternRow,
-        "SELECT id, weekdays, start_time, every_n_weeks, anchor_date FROM schedule_patterns
-         WHERE campaign_id = ? ORDER BY created_at",
+/// The start times of the options of the campaign's most recent scheduling poll, in date order:
+/// the new-poll form starts with that poll's usual time.
+pub async fn latest_poll_starts(
+    db: &SqlitePool,
+    campaign_id: i64,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT starts_at FROM schedule_options WHERE poll_id =
+           (SELECT id FROM schedule_polls WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT 1)
+         ORDER BY starts_at",
         campaign_id
     )
     .fetch_all(db)
     .await
-}
-
-pub async fn pattern(
-    db: &SqlitePool,
-    campaign_id: i64,
-    pattern_id: i64,
-) -> Result<Option<PatternRow>, sqlx::Error> {
-    sqlx::query_as!(
-        PatternRow,
-        "SELECT id, weekdays, start_time, every_n_weeks, anchor_date FROM schedule_patterns
-         WHERE campaign_id = ? AND id = ?",
-        campaign_id,
-        pattern_id
-    )
-    .fetch_optional(db)
-    .await
-}
-
-pub async fn create_pattern(
-    db: &SqlitePool,
-    campaign_id: i64,
-    user_id: i64,
-    p: &NewPattern,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO schedule_patterns (campaign_id, weekdays, start_time, every_n_weeks, anchor_date, created_by)
-         VALUES (?, ?, ?, ?, ?, ?)",
-        campaign_id,
-        p.weekdays,
-        p.start_time,
-        p.every_n_weeks,
-        p.anchor_date,
-        user_id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn delete_pattern(
-    db: &SqlitePool,
-    campaign_id: i64,
-    pattern_id: i64,
-) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query!(
-        "DELETE FROM schedule_patterns WHERE campaign_id = ? AND id = ?",
-        campaign_id,
-        pattern_id
-    )
-    .execute(db)
-    .await?;
-    Ok(result.rows_affected())
 }

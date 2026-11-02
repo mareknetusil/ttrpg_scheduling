@@ -143,12 +143,14 @@ pub async fn vote(
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
-    if !poll.is_closed() {
-        let mut option_ids = form.option_ids;
-        if !poll.multiple_choice {
-            option_ids.truncate(1);
-        }
-        db::set_votes(&state.db, poll_id, user.id, &option_ids).await?;
+    let mut option_ids = form.option_ids;
+    if !poll.multiple_choice {
+        option_ids.truncate(1);
+    }
+    if !db::set_votes(&state.db, poll_id, user.id, &option_ids).await? {
+        // closed meanwhile: reload, so the answer shows it closed
+        let (poll, access) = load(&state, poll_id, &user).await?;
+        return render_poll(&state, &poll, &user, &access).await;
     }
     render_poll(&state, &poll, &user, &access).await
 }

@@ -364,7 +364,7 @@ pub async fn open_poll_count(db: &SqlitePool, campaign_id: i64) -> Result<i64, s
 /// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
 /// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
 /// decided, and tells the members (`actor_id` decided). Returns the new game session id, or
-/// `None` if the poll isn't open or the option isn't one of its options.
+/// `None` if the poll isn't open, the option isn't one of its options, or its date has passed.
 pub async fn decide(
     db: &SqlitePool,
     poll_id: i64,
@@ -380,6 +380,7 @@ pub async fn decide(
                   o.starts_at
            FROM schedule_polls AS p JOIN schedule_options AS o ON o.poll_id = p.id
            WHERE p.id = ? AND o.id = ? AND p.status = 'open'
+             AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
            RETURNING id AS "id!", campaign_id"#,
         poll_id,
         option_id

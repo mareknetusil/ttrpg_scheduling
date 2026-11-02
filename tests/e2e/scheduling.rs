@@ -619,6 +619,15 @@ async fn past_dates_cant_be_voted_or_picked(db: SqlitePool) {
     );
     // "Most yes" ignores past dates
     assert!(!r.has("tr.is-past .badge"));
+    // and the backend refuses a crafted Pick of the past date
+    let decide = format!("/schedule/{poll}/decide");
+    assert_eq!(
+        gm.post(&decide, &[("option_id", &opts[0].to_string())])
+            .await
+            .redirect(),
+        format!("/schedule/{poll}")
+    );
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 0);
 
     // all dates past
     let old = gm

@@ -111,14 +111,17 @@ pub async fn votes(db: &SqlitePool, poll_id: i64) -> Result<Vec<VoteRow>, sqlx::
     .await
 }
 
-/// Replaces the user's votes in this poll. Option ids from other polls are ignored.
+/// Replaces the user's votes in this poll. Option ids from other polls are ignored. Returns
+/// false (and changes nothing) if the poll is closed: by the GM, or its `closes_at` has passed.
 pub async fn set_votes(
     db: &SqlitePool,
     poll_id: i64,
     user_id: i64,
     option_ids: &[i64],
-) -> Result<(), sqlx::Error> {
+) -> Result<bool, sqlx::Error> {
     let mut tx = db.begin().await?;
+    // The first statement writes, which takes SQLite's write lock at once: the poll can't be
+    // closed between the check below and the inserts.
     sqlx::query!(
         "DELETE FROM poll_votes WHERE user_id = ?
          AND poll_option_id IN (SELECT id FROM poll_options WHERE poll_id = ?)",
@@ -127,6 +130,18 @@ pub async fn set_votes(
     )
     .execute(&mut *tx)
     .await?;
+    let open = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "n!: i64" FROM polls WHERE id = ? AND closed_at IS NULL
+           AND (closes_at IS NULL OR closes_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"#,
+        poll_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+        > 0;
+    if !open {
+        // dropping `tx` rolls back the DELETE
+        return Ok(false);
+    }
     for option_id in option_ids {
         sqlx::query!(
             "INSERT OR IGNORE INTO poll_votes (poll_option_id, user_id)
@@ -139,7 +154,7 @@ pub async fn set_votes(
         .await?;
     }
     tx.commit().await?;
-    Ok(())
+    Ok(true)
 }
 
 /// Closes the poll (if it isn't closed yet) and tells the members (`actor_id` closed it).

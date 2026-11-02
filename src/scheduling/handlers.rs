@@ -378,7 +378,8 @@ pub async fn decide(
     }
     match db::decide(&state.db, poll_id, form.option_id, user.id).await? {
         Some(session_id) => Ok(Redirect::to(&format!("/sessions/{session_id}")).into_response()),
-        // Already decided or cancelled (e.g. a double click): show the poll as it is now.
+        // Already decided or cancelled (e.g. a double click), or the date has passed: show the
+        // poll as it is now.
         None => Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response()),
     }
 }

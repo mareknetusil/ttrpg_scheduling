@@ -190,6 +190,20 @@ async fn polls(db: SqlitePool) {
             .contains("Mark")
     );
 
+    // a passed automatic close counts as closed too (the vote is refused by the write itself)
+    sqlx::query("UPDATE polls SET closed_at = NULL, closes_at = '2020-01-01T00:00:00Z'")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    let r = mark.post(&vote, &[("option_ids", &b)]).await;
+    assert!(r.ok().text(".poll__head p").starts_with("Closed"));
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM poll_votes WHERE user_id = 2 AND poll_option_id = 1")
+            .await,
+        1,
+        "still the vote for Pizza"
+    );
+
     // a multiple-choice poll on a session, which must be in this campaign
     let s = gm
         .post(

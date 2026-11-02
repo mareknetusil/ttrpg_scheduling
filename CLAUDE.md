@@ -121,8 +121,11 @@ finished. Keep the code simple and explicit so the owner can still read and main
   notifications first (they hold foreign keys). `GET /notifications`, `PUT /notifications/seen`.
 - `src/game_sessions/`: game sessions (`/sessions/{id}`: edit, attendance, entries), entries
   (`/entries/{id}`), history (`/campaigns/{id}/history`), upcoming lists for dashboard/campaign,
-  and adding a session without a poll (`/campaigns/{id}/sessions/new`). `db::renumber` keeps
-  session numbers in date order; call it after any insert or date change.
+  and adding a session without a poll (`/campaigns/{id}/sessions/new`). Every write to the
+  `game_sessions` table (except deleting a whole campaign) lives in `game_sessions::db`, which
+  keeps session numbers in date order
+  (private `renumber`). Other modules use `insert`, `untouched` and `delete_if_untouched`,
+  which take the caller's transaction and don't notify (scheduling's decide/reopen do).
 - `src/time.rs`: UTC DB strings ↔ `chrono`; `parse_local` for `datetime-local` inputs in
   `DISPLAY_TZ`; `When`, the struct templates get for any timestamp (`iso`, `date`, `time`, `full`,
   `input`, `is_past`). For a timestamp kept as a string in a row struct, templates use the

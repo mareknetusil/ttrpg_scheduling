@@ -849,19 +849,33 @@ async fn reopen_a_decided_poll(db: SqlitePool) {
     gm.post(&decide, &[("option_id", &opts[0].to_string())])
         .await
         .redirect_id("/sessions/");
+    // a later game session, added by hand, is number 2
+    let later = gm
+        .post(
+            &format!("/campaigns/{id}/sessions"),
+            &[("starts_at", "2030-02-01T18:00"), ("title", "")],
+        )
+        .await
+        .redirect_id("/sessions/");
 
     // only the GM gets the button
     assert!(gm.get(&page).await.ok().has("form[action$='/reopen']"));
     assert!(!mark.get(&page).await.has("form[action$='/reopen']"));
     assert_eq!(mark.post(&reopen, &[]).await.status, StatusCode::NOT_FOUND);
 
-    // reopening deletes the session and keeps the votes
+    // reopening deletes the session (and its attendance), keeps the votes and renumbers the rest
     assert_eq!(gm.post(&reopen, &[]).await.redirect(), page);
-    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 0);
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 1);
+    assert_eq!(
+        app.scalar("SELECT number FROM game_sessions").await,
+        1,
+        "the later game session moved up"
+    );
     assert_eq!(
         app.scalar("SELECT COUNT(*) FROM game_session_attendance")
             .await,
-        0
+        0,
+        "the decided session's attendance went with it (the hand-added one has none)"
     );
     assert_eq!(app.scalar("SELECT COUNT(*) FROM schedule_votes").await, 1);
     let r = mark.get(&page).await;
@@ -873,7 +887,13 @@ async fn reopen_a_decided_poll(db: SqlitePool) {
         .post(&decide, &[("option_id", &opts[1].to_string())])
         .await
         .redirect_id("/sessions/");
-    assert_eq!(app.scalar("SELECT number FROM game_sessions").await, 1);
+    let number = |id: i64| {
+        sqlx::query_scalar::<_, i64>("SELECT number FROM game_sessions WHERE id = ?")
+            .bind(id)
+            .fetch_one(&app.db)
+    };
+    assert_eq!(number(session).await.unwrap(), 1);
+    assert_eq!(number(later).await.unwrap(), 2);
     mark.post(
         &format!("/sessions/{session}/comments"),
         &[("body_md", "See you")],
@@ -884,10 +904,12 @@ async fn reopen_a_decided_poll(db: SqlitePool) {
     assert!(!r.has("form[action$='/reopen']"));
     assert!(r.text(".decided").contains("edit the game session"));
     gm.post(&reopen, &[]).await.redirect();
-    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 1);
+    assert_eq!(app.scalar("SELECT COUNT(*) FROM game_sessions").await, 2);
+    assert!(gm.get(&page).await.has(".decided"), "still decided");
 
     // the banner follows the session, not the option that was picked
-    sqlx::query("UPDATE game_sessions SET status = 'cancelled'")
+    sqlx::query("UPDATE game_sessions SET status = 'cancelled' WHERE id = ?")
+        .bind(session)
         .execute(&app.db)
         .await
         .unwrap();

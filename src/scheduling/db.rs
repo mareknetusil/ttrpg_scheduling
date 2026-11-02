@@ -1,11 +1,12 @@
 use super::model::{Answer, Layout, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow};
+use crate::game_sessions::{self, model::SessionStatus};
 use crate::notifications::{
     db::notify,
     model::{Kind, Notice, Target},
 };
 use crate::time;
 use chrono_tz::Tz;
-use sqlx::sqlite::{SqliteConnection, SqlitePool};
+use sqlx::sqlite::SqlitePool;
 use std::collections::HashMap;
 
 pub async fn create(
@@ -362,26 +363,24 @@ pub async fn open_poll_count(db: &SqlitePool, campaign_id: i64) -> Result<i64, s
 }
 
 /// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
-/// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
-/// decided, and tells the members (`actor_id` decided). Returns the new game session id, or
-/// `None` if the poll isn't open, the option isn't one of its options, or its date has passed.
+/// option's time (numbered by date), pre-fills attendance with the members who voted yes, and
+/// marks the poll decided, and tells the members (`actor_id` decided). Returns the new game
+/// session id, or `None` if the poll isn't open, the option isn't one of its options, or its
+/// date has passed.
 pub async fn decide(
     db: &SqlitePool,
     poll_id: i64,
     option_id: i64,
     actor_id: i64,
 ) -> Result<Option<i64>, sqlx::Error> {
-    let mut tx = db.begin().await?;
-    // The first statement writes (takes SQLite's write lock at once) and checks everything.
-    let Some(session) = sqlx::query!(
-        r#"INSERT INTO game_sessions (campaign_id, number, starts_at)
-           SELECT p.campaign_id,
-                  (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = p.campaign_id),
-                  o.starts_at
-           FROM schedule_polls AS p JOIN schedule_options AS o ON o.poll_id = p.id
-           WHERE p.id = ? AND o.id = ? AND p.status = 'open'
-             AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-           RETURNING id AS "id!", campaign_id"#,
+    // IMMEDIATE takes SQLite's write lock at once, so nothing changes between the checks below
+    // and the writes (e.g. a double click deciding twice).
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
+    let Some(option) = sqlx::query!(
+        "SELECT p.campaign_id, o.starts_at
+         FROM schedule_polls AS p JOIN schedule_options AS o ON o.poll_id = p.id
+         WHERE p.id = ? AND o.id = ? AND p.status = 'open'
+           AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
         poll_id,
         option_id
     )
@@ -390,30 +389,33 @@ pub async fn decide(
     else {
         return Ok(None);
     };
-    sqlx::query!(
-        "INSERT INTO game_session_attendance (game_session_id, user_id)
-         SELECT ?, v.user_id FROM schedule_votes AS v
-         JOIN campaign_members AS m ON m.user_id = v.user_id AND m.campaign_id = ?
-         WHERE v.option_id = ? AND v.answer = 'yes'",
-        session.id,
-        session.campaign_id,
+    let yes_voters = sqlx::query_scalar!(
+        "SELECT user_id FROM schedule_votes WHERE option_id = ? AND answer = 'yes'",
         option_id
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
+    .await?;
+    let session_id = game_sessions::db::insert(
+        &mut tx,
+        option.campaign_id,
+        "",
+        &option.starts_at,
+        SessionStatus::Planned,
+        &yes_voters,
+    )
     .await?;
     sqlx::query!(
         "UPDATE schedule_polls SET status = 'decided', decided_option_id = ?, game_session_id = ? WHERE id = ?",
         option_id,
-        session.id,
+        session_id,
         poll_id
     )
     .execute(&mut *tx)
     .await?;
-    crate::game_sessions::db::renumber(&mut tx, session.campaign_id).await?;
     notify(
         &mut tx,
         &Notice {
-            campaign_id: session.campaign_id,
+            campaign_id: option.campaign_id,
             actor_id,
             kind: Kind::SchedulePollDecided,
             target: Target {
@@ -424,35 +426,16 @@ pub async fn decide(
     )
     .await?;
     tx.commit().await?;
-    Ok(Some(session.id))
-}
-
-/// Can a decided poll be reopened? Only while the game session it created is untouched: still
-/// planned, with no entries, comments or polls. Attendance doesn't count (the decision filled it).
-pub async fn session_untouched(
-    conn: &mut SqliteConnection,
-    session_id: i64,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar!(
-        r#"SELECT (status = 'planned'
-                   AND NOT EXISTS (SELECT 1 FROM game_session_entries WHERE game_session_id = s.id)
-                   AND NOT EXISTS (SELECT 1 FROM comments WHERE game_session_id = s.id)
-                   AND NOT EXISTS (SELECT 1 FROM polls WHERE game_session_id = s.id)) AS "ok!: bool"
-           FROM game_sessions AS s WHERE s.id = ?"#,
-        session_id
-    )
-    .fetch_optional(conn)
-    .await
-    .map(|ok| ok.unwrap_or(false))
+    Ok(Some(session_id))
 }
 
 /// Undoes a decision (a wrong click, or the date fell through): the poll is open again, with its
-/// votes, and the game session the decision created is deleted. The one exception to "sessions
-/// are never deleted", allowed only while `session_untouched`. Returns false (and changes
-/// nothing) if the poll isn't decided or the session isn't untouched. Tells the members
-/// (`actor_id` reopened it).
+/// votes, and the game session the decision created is deleted, if it's still untouched
+/// (`game_sessions::db::delete_if_untouched`). Returns false (and changes nothing) if the poll
+/// isn't decided or the session isn't untouched. Tells the members (`actor_id` reopened it).
 pub async fn reopen(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<bool, sqlx::Error> {
-    let mut tx = db.begin().await?;
+    // IMMEDIATE: the write lock at once, so the poll can't change between check and writes.
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
     let Some(row) = sqlx::query!(
         r#"SELECT game_session_id AS "session_id!", campaign_id FROM schedule_polls
            WHERE id = ? AND status = 'decided'"#,
@@ -463,9 +446,7 @@ pub async fn reopen(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<bool
     else {
         return Ok(false);
     };
-    if !session_untouched(&mut tx, row.session_id).await? {
-        return Ok(false);
-    }
+    // The poll lets go of the session first (it holds a foreign key to it).
     sqlx::query!(
         "UPDATE schedule_polls SET status = 'open', decided_option_id = NULL, game_session_id = NULL
          WHERE id = ?",
@@ -473,22 +454,10 @@ pub async fn reopen(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<bool
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM game_session_attendance WHERE game_session_id = ?",
-        row.session_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM notifications WHERE game_session_id = ?",
-        row.session_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!("DELETE FROM game_sessions WHERE id = ?", row.session_id)
-        .execute(&mut *tx)
-        .await?;
-    crate::game_sessions::db::renumber(&mut tx, row.campaign_id).await?;
+    if !game_sessions::db::delete_if_untouched(&mut tx, row.session_id).await? {
+        // dropping `tx` rolls back the poll update
+        return Ok(false);
+    }
     notify(
         &mut tx,
         &Notice {
@@ -588,16 +557,6 @@ pub async fn open_for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<PollSumm
         user_id
     )
     .fetch_all(db)
-    .await
-}
-
-/// The number the next game session of the campaign will get (for the default poll title).
-pub async fn next_session_number(db: &SqlitePool, campaign_id: i64) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar!(
-        r#"SELECT COALESCE(MAX(number), 0) + 1 AS "n!: i64" FROM game_sessions WHERE campaign_id = ?"#,
-        campaign_id
-    )
-    .fetch_one(db)
     .await
 }
 

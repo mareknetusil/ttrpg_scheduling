@@ -244,8 +244,9 @@ poll_votes
   `CHECK` keeps `schedule_polls.status = 'decided'` in sync with its two decision columns.
 - Deciding a poll gives the session no title (the poll title is usually "Session 12", which
   would duplicate the number); the GM can add one on the session page.
-- Sessions are numbered by date (cancelled ones included): `game_sessions::db::renumber` runs
-  in the same transaction after every insert (poll decision, direct add) and date change, so a
+- Sessions are numbered by date (cancelled ones included): `game_sessions::db::renumber` (private
+  to that module, which does every write to `game_sessions` but a campaign delete) runs in the same transaction after
+  every insert (poll decision, direct add), delete (reopen) and date change, so a
   session backfilled for an earlier date takes its chronological number and later ones shift.
   Sessions are never deleted; the GM marks them cancelled. One exception: reopening a decided
   poll (`POST /schedule/{id}/reopen`, GM) deletes the session the decision created, but only while

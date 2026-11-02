@@ -37,8 +37,8 @@ pub async fn new_form(
         return Err(AppError::NotFound);
     }
     // Another open poll is probably for the next session already, so count past it
-    let number =
-        db::next_session_number(&state.db, id).await? + db::open_poll_count(&state.db, id).await?;
+    let number = game_sessions::db::next_number(&state.db, id).await?
+        + db::open_poll_count(&state.db, id).await?;
     let form = NewPollForm {
         title: format!("Session {number}"),
         description_md: String::new(),
@@ -524,7 +524,7 @@ async fn poll_context(
         && let Some(s) = game_sessions::db::get(&state.db, session_id).await?
     {
         can_reopen = access.can_manage()
-            && db::session_untouched(&mut *state.db.acquire().await?, session_id).await?;
+            && game_sessions::db::untouched(&mut *state.db.acquire().await?, session_id).await?;
         session = Some(SessionView::new(&s, state.tz));
     }
     let unanswered = options

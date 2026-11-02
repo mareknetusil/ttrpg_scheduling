@@ -94,31 +94,7 @@ pub async fn create(
     actor_id: i64,
 ) -> Result<i64, sqlx::Error> {
     let mut tx = db.begin().await?;
-    // A placeholder number (unique for now); `renumber` puts it in date order.
-    let id = sqlx::query_scalar!(
-        r#"INSERT INTO game_sessions (campaign_id, number, title, starts_at, status)
-           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = ?), ?, ?, ?)
-           RETURNING id AS "id!""#,
-        campaign_id,
-        campaign_id,
-        title,
-        starts_at,
-        status
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    for user_id in user_ids {
-        sqlx::query!(
-            "INSERT OR IGNORE INTO game_session_attendance (game_session_id, user_id)
-             SELECT ?, user_id FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
-            id,
-            campaign_id,
-            user_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    renumber(&mut tx, campaign_id).await?;
+    let id = insert(&mut tx, campaign_id, title, starts_at, status, user_ids).await?;
     notify(
         &mut tx,
         &Notice {
@@ -136,9 +112,106 @@ pub async fn create(
     Ok(id)
 }
 
+/// Inserts a game session with the given attendance (members' ids only; others are ignored) and
+/// renumbers the campaign's sessions, inside the caller's transaction. Doesn't notify: the caller
+/// knows why the session exists (added by hand, or a scheduling poll was decided).
+pub async fn insert(
+    conn: &mut SqliteConnection,
+    campaign_id: i64,
+    title: &str,
+    starts_at: &str,
+    status: SessionStatus,
+    user_ids: &[i64],
+) -> Result<i64, sqlx::Error> {
+    // A placeholder number (unique for now); `renumber` puts it in date order.
+    let id = sqlx::query_scalar!(
+        r#"INSERT INTO game_sessions (campaign_id, number, title, starts_at, status)
+           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM game_sessions WHERE campaign_id = ?), ?, ?, ?)
+           RETURNING id AS "id!""#,
+        campaign_id,
+        campaign_id,
+        title,
+        starts_at,
+        status
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    for user_id in user_ids {
+        sqlx::query!(
+            "INSERT OR IGNORE INTO game_session_attendance (game_session_id, user_id)
+             SELECT ?, user_id FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
+            id,
+            campaign_id,
+            user_id
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    renumber(conn, campaign_id).await?;
+    Ok(id)
+}
+
+/// The number the next game session of the campaign will get (for a default poll title).
+pub async fn next_number(db: &SqlitePool, campaign_id: i64) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT COALESCE(MAX(number), 0) + 1 AS "n!: i64" FROM game_sessions WHERE campaign_id = ?"#,
+        campaign_id
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Is the game session untouched: still planned, with no entries, comments or polls? Only then
+/// may it be deleted (`delete_if_untouched`). Attendance and edits to its date or title don't
+/// count: deleting it is how a scheduling poll is reopened when the date fell through.
+pub async fn untouched(conn: &mut SqliteConnection, id: i64) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT (status = 'planned'
+                   AND NOT EXISTS (SELECT 1 FROM game_session_entries WHERE game_session_id = s.id)
+                   AND NOT EXISTS (SELECT 1 FROM comments WHERE game_session_id = s.id)
+                   AND NOT EXISTS (SELECT 1 FROM polls WHERE game_session_id = s.id)) AS "ok!: bool"
+           FROM game_sessions AS s WHERE s.id = ?"#,
+        id
+    )
+    .fetch_optional(conn)
+    .await
+    .map(|ok| ok.unwrap_or(false))
+}
+
+/// Deletes the game session (with its attendance and notifications) and renumbers the rest, inside
+/// the caller's transaction, but only if it's `untouched`. The one exception to "game sessions
+/// are never deleted". Returns false (and changes nothing) otherwise. Doesn't notify. The caller
+/// must first clear anything that points at the session (a decided poll's `game_session_id`).
+pub async fn delete_if_untouched(
+    conn: &mut SqliteConnection,
+    id: i64,
+) -> Result<bool, sqlx::Error> {
+    if !untouched(conn, id).await? {
+        return Ok(false);
+    }
+    sqlx::query!(
+        "DELETE FROM game_session_attendance WHERE game_session_id = ?",
+        id
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!("DELETE FROM notifications WHERE game_session_id = ?", id)
+        .execute(&mut *conn)
+        .await?;
+    let campaign_id = sqlx::query_scalar!(
+        "DELETE FROM game_sessions WHERE id = ? RETURNING campaign_id",
+        id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    renumber(conn, campaign_id).await?;
+    Ok(true)
+}
+
 /// Numbers the campaign's sessions 1, 2, 3, … by date (cancelled ones included), so a session
-/// added for an earlier date gets the right number. Run after every insert or date change.
-pub async fn renumber(conn: &mut SqliteConnection, campaign_id: i64) -> Result<(), sqlx::Error> {
+/// added for an earlier date gets the right number. Run after every insert, delete or date change
+/// (all of which happen in this module).
+async fn renumber(conn: &mut SqliteConnection, campaign_id: i64) -> Result<(), sqlx::Error> {
     // Negate first: `UNIQUE (campaign_id, number)` is checked row by row, so moving numbers in
     // place could collide halfway through.
     sqlx::query!(

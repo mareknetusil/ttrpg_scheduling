@@ -260,7 +260,12 @@ poll_votes
   can still pick a date) but members can't vote, again without a write. Dates already in the
   past can't be voted on or picked, and don't count for "Most yes", the "Vote" badge or "you
   haven't answered". A vote refused because the poll changed since the page loaded answers with
-  `HX-Refresh` so the page reloads and shows why.
+  `HX-Refresh` so the page reloads and shows why. These rules are written once, as SQL views
+  (migration `create_voting_views`): `voting_polls` (open, deadline not passed),
+  `upcoming_options` (date still ahead) and `votable_options` (both). Every answer write,
+  `decide` and the poll lists select from them; the Rust copies (`Poll::voting_open`,
+  `When::is_past`) only decide what the page shows. Answer writes run in a `BEGIN IMMEDIATE`
+  transaction, so a check can't go stale before the write.
 - htmx failures are reported by a small handler in `base.html` (a notice with "Reload"); a
   request whose login expired is sent to `/login` instead of swapping the login page in.
 - Votes count only for current members: the grid shows one column per member, and attendance

@@ -1,8 +1,8 @@
 use super::{
     db,
     model::{
-        Answer, DecideForm, Layout, NewPollForm, Poll, PollStatus, PollView, VoteForm,
-        calendar_weeks, usual_time,
+        Answered, DecideForm, Layout, NewPollForm, Poll, PollStatus, PollView, Tally, VoteForm,
+        calendar_weeks, tally, usual_time,
     },
 };
 use crate::{
@@ -22,7 +22,6 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{Datelike, NaiveDate};
-use chrono_tz::Tz;
 use minijinja::{Value, context, value::Serde};
 use std::{collections::HashMap, sync::Arc};
 
@@ -112,20 +111,8 @@ pub async fn vote(
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
-    if !db::set_vote(&state.db, poll_id, option_id, user.id, form.answer).await? {
-        let options = db::options(&state.db, poll_id).await?;
-        if !options.iter().any(|o| o.id == option_id) {
-            return Err(AppError::NotFound);
-        }
-        // A real option that can't be voted on any more: since the page was loaded the poll was
-        // decided or cancelled, or the deadline or the date passed. htmx reloads the page, which
-        // shows why.
-        return Ok([("HX-Refresh", "true")].into_response());
-    }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    Ok(state
-        .render_block("schedule/show.html", "grid", ctx)?
-        .into_response())
+    let answered = db::set_vote(&state.db, poll_id, option_id, user.id, form.answer).await?;
+    after_answer(&state, &user, &poll, &campaign, &access, answered).await
 }
 
 /// The new-poll form, filled with an open poll's current values. Only the GM edits, and only while
@@ -227,24 +214,10 @@ async fn render_form(
             form => Serde(form),
             votes => Serde(&votes),
             start_time,
-            today => today(state.tz).format("%Y-%m-%d").to_string(),
+            today => time::today(state.tz).format("%Y-%m-%d").to_string(),
             error,
         },
     )
-}
-
-/// Today in the group's time zone.
-fn today(tz: Tz) -> NaiveDate {
-    chrono::Utc::now().with_timezone(&tz).date_naive()
-}
-
-/// The local day of a DB timestamp. A malformed value (which the app never writes) counts as
-/// today rather than failing the page.
-fn local_day(starts_at: &str, tz: Tz) -> NaiveDate {
-    match time::from_db(starts_at) {
-        Some(t) => t.with_timezone(&tz).date_naive(),
-        None => today(tz),
-    }
 }
 
 /// `DELETE` via htmx (clicking your current answer again): back to "no answer". Answers like
@@ -258,17 +231,8 @@ pub async fn clear_vote(
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
-    if !db::clear_vote(&state.db, poll_id, option_id, user.id).await? {
-        let options = db::options(&state.db, poll_id).await?;
-        if !options.iter().any(|o| o.id == option_id) {
-            return Err(AppError::NotFound);
-        }
-        return Ok([("HX-Refresh", "true")].into_response());
-    }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    Ok(state
-        .render_block("schedule/show.html", "grid", ctx)?
-        .into_response())
+    let answered = db::clear_vote(&state.db, poll_id, option_id, user.id).await?;
+    after_answer(&state, &user, &poll, &campaign, &access, answered).await
 }
 
 /// `PUT` via htmx, field `answer`: answers every date the user hasn't answered yet.
@@ -282,13 +246,8 @@ pub async fn vote_unanswered(
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
-    if !db::set_unanswered(&state.db, poll_id, user.id, form.answer).await? {
-        return Ok([("HX-Refresh", "true")].into_response());
-    }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    Ok(state
-        .render_block("schedule/show.html", "grid", ctx)?
-        .into_response())
+    let answered = db::set_unanswered(&state.db, poll_id, user.id, form.answer).await?;
+    after_answer(&state, &user, &poll, &campaign, &access, answered).await
 }
 
 /// `PUT` via htmx from a day of a calendar poll, field `answer` (the brush): sets that answer, or
@@ -303,17 +262,8 @@ pub async fn paint(
     if access.role.is_none() {
         return Err(AppError::NotFound);
     }
-    let options = db::options(&state.db, poll_id).await?;
-    if !options.iter().any(|o| o.id == option_id) {
-        return Err(AppError::NotFound);
-    }
-    if !db::paint(&state.db, poll_id, user.id, &[option_id], form.answer).await? {
-        return Ok([("HX-Refresh", "true")].into_response());
-    }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    Ok(state
-        .render_block("schedule/show.html", "grid", ctx)?
-        .into_response())
+    let answered = db::paint(&state.db, poll_id, user.id, &[option_id], form.answer).await?;
+    after_answer(&state, &user, &poll, &campaign, &access, answered).await
 }
 
 /// `PUT` via htmx from a weekday header of a calendar poll (`weekday` 0 = Monday … 6 = Sunday),
@@ -332,20 +282,15 @@ pub async fn paint_weekday(
         .await?
         .iter()
         .filter(|o| {
-            local_day(&o.starts_at, state.tz)
+            time::local_day(&o.starts_at, state.tz)
                 .weekday()
                 .num_days_from_monday()
                 == weekday
         })
         .map(|o| o.id)
         .collect();
-    if !db::paint(&state.db, poll_id, user.id, &option_ids, form.answer).await? {
-        return Ok([("HX-Refresh", "true")].into_response());
-    }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
-    Ok(state
-        .render_block("schedule/show.html", "grid", ctx)?
-        .into_response())
+    let answered = db::paint(&state.db, poll_id, user.id, &option_ids, form.answer).await?;
+    after_answer(&state, &user, &poll, &campaign, &access, answered).await
 }
 
 /// `GET` via htmx every minute while voting is open: the grid with other members' latest answers.
@@ -358,12 +303,45 @@ pub async fn grid(
 ) -> Result<Response, AppError> {
     let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
     if !poll.voting_open() {
-        return Ok([("HX-Refresh", "true")].into_response());
+        return Ok(reload());
     }
-    let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
+    render_grid(&state, &user, &poll, &campaign, &access).await
+}
+
+/// The response to an answer request: the re-rendered grid. If voting closed since the page was
+/// loaded, htmx reloads the whole page instead, which shows why. A date of another poll is a 404.
+async fn after_answer(
+    state: &AppState,
+    user: &CurrentUser,
+    poll: &Poll,
+    campaign: &Campaign,
+    access: &Access,
+    answered: Answered,
+) -> Result<Response, AppError> {
+    match answered {
+        Answered::Changed => render_grid(state, user, poll, campaign, access).await,
+        Answered::VotingClosed => Ok(reload()),
+        Answered::NotThisPoll => Err(AppError::NotFound),
+    }
+}
+
+/// The `grid` block of the poll page (htmx swaps it in).
+async fn render_grid(
+    state: &AppState,
+    user: &CurrentUser,
+    poll: &Poll,
+    campaign: &Campaign,
+    access: &Access,
+) -> Result<Response, AppError> {
+    let ctx = poll_context(state, user, poll, campaign, access).await?;
     Ok(state
         .render_block("schedule/show.html", "grid", ctx)?
         .into_response())
+}
+
+/// Tells htmx to reload the whole page.
+fn reload() -> Response {
+    [("HX-Refresh", "true")].into_response()
 }
 
 pub async fn decide(
@@ -425,31 +403,6 @@ async fn load_poll(
     Ok((poll, campaign, access))
 }
 
-/// One row of the voting grid.
-#[derive(serde::Serialize)]
-struct OptionView {
-    id: i64,
-    when: When,
-    yes: usize,
-    maybe: usize,
-    no: usize,
-    /// One answer per member, in the order of `members`
-    cells: Vec<Option<Answer>>,
-    mine: Option<Answer>,
-    is_best: bool,
-    /// Every member answered, and nobody said no
-    no_conflicts: bool,
-    is_decided: bool,
-}
-
-/// A member who hasn't answered every upcoming date yet.
-#[derive(serde::Serialize)]
-struct WaitingOn {
-    display_name: String,
-    /// How many upcoming dates they haven't answered
-    unanswered: usize,
-}
-
 async fn poll_context(
     state: &AppState,
     user: &CurrentUser,
@@ -459,64 +412,20 @@ async fn poll_context(
 ) -> Result<Value, AppError> {
     let members = campaigns::db::members(&state.db, campaign.id).await?;
     let option_rows = db::options(&state.db, poll.id).await?;
-    let mut answers: HashMap<(i64, i64), Answer> = HashMap::new();
-    for v in db::votes(&state.db, poll.id).await? {
-        answers.insert((v.option_id, v.user_id), v.answer);
-    }
-
-    let mut options: Vec<OptionView> = option_rows
-        .iter()
-        .map(|o| {
-            let cells: Vec<Option<Answer>> = members
-                .iter()
-                .map(|m| answers.get(&(o.id, m.user_id)).copied())
-                .collect();
-            let count = |a: Answer| cells.iter().filter(|c| **c == Some(a)).count();
-            OptionView {
-                id: o.id,
-                when: When::from_db(&o.starts_at, state.tz),
-                yes: count(Answer::Yes),
-                maybe: count(Answer::Maybe),
-                no: count(Answer::No),
-                mine: answers.get(&(o.id, user.id)).copied(),
-                no_conflicts: !members.is_empty()
-                    && cells
-                        .iter()
-                        .all(|c| matches!(c, Some(Answer::Yes | Answer::Maybe))),
-                cells,
-                is_best: false,
-                is_decided: poll.decided_option_id == Some(o.id),
-            }
-        })
-        .collect();
-    // "Most yes" (ties broken by maybe) among the dates still ahead, only once someone said yes.
-    // Ties all get the marker.
-    let best = options
-        .iter()
-        .filter(|o| !o.when.is_past)
-        .map(|o| (o.yes, o.maybe))
-        .max();
-    if let Some(best) = best.filter(|(yes, _)| *yes > 0) {
-        for o in &mut options {
-            o.is_best = !o.when.is_past && (o.yes, o.maybe) == best;
-        }
-    }
-    for o in &mut options {
-        o.no_conflicts = o.no_conflicts && !o.when.is_past;
-    }
-    let upcoming = options.iter().filter(|o| !o.when.is_past).count();
-    let waiting_on: Vec<WaitingOn> = members
-        .iter()
-        .enumerate()
-        .map(|(i, m)| WaitingOn {
-            display_name: m.display_name.clone(),
-            unanswered: options
-                .iter()
-                .filter(|o| !o.when.is_past && o.cells[i].is_none())
-                .count(),
-        })
-        .filter(|w| w.unanswered > 0)
-        .collect();
+    let votes = db::votes(&state.db, poll.id).await?;
+    let Tally {
+        options,
+        upcoming,
+        unanswered,
+        waiting_on,
+    } = tally(
+        &option_rows,
+        &members,
+        &votes,
+        user.id,
+        poll.decided_option_id,
+        state.tz,
+    );
     // A decided poll shows the game session as it is now (the GM may have moved or cancelled it).
     let mut session = None;
     let mut can_reopen = false;
@@ -527,19 +436,15 @@ async fn poll_context(
             && game_sessions::db::untouched(&mut *state.db.acquire().await?, session_id).await?;
         session = Some(SessionView::new(&s, state.tz));
     }
-    let unanswered = options
-        .iter()
-        .filter(|o| !o.when.is_past && o.mine.is_none())
-        .count();
 
     // The calendar layout: week rows, the time most dates start at, and which weekday headers
     // have upcoming dates to answer
     let days: Vec<NaiveDate> = option_rows
         .iter()
-        .map(|o| local_day(&o.starts_at, state.tz))
+        .map(|o| time::local_day(&o.starts_at, state.tz))
         .collect();
     let weeks = match poll.layout {
-        Layout::Calendar => calendar_weeks(&days, today(state.tz)),
+        Layout::Calendar => calendar_weeks(&days, time::today(state.tz)),
         Layout::List => Vec::new(),
     };
     let times: Vec<&str> = options.iter().map(|o| o.when.time.as_str()).collect();

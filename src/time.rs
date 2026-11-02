@@ -1,11 +1,25 @@
 //! Time handling. The DB stores UTC as `TEXT` (`2026-10-24T16:00:00Z`); the UI shows and accepts
 //! times in the one display time zone (`DISPLAY_TZ`).
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 
 /// The DB format, the same as `strftime('%Y-%m-%dT%H:%M:%SZ', 'now')` in SQL.
 const DB_FORMAT: &str = "%Y-%m-%dT%H:%M:%SZ";
+
+/// Today in the group's time zone.
+pub fn today(tz: Tz) -> NaiveDate {
+    Utc::now().with_timezone(&tz).date_naive()
+}
+
+/// The local day of a DB timestamp. A malformed value (which the app never writes) counts as
+/// today rather than failing the page.
+pub fn local_day(starts_at: &str, tz: Tz) -> NaiveDate {
+    match from_db(starts_at) {
+        Some(t) => t.with_timezone(&tz).date_naive(),
+        None => today(tz),
+    }
+}
 
 pub fn to_db(t: DateTime<Utc>) -> String {
     t.format(DB_FORMAT).to_string()

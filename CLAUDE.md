@@ -112,8 +112,12 @@ finished. Keep the code simple and explicit so the owner can still read and main
 - `src/scheduling/`: scheduling polls (`/campaigns/{id}/schedule/new`, `/schedule/{poll_id}`),
   decide → game session. A poll's `layout` is `calendar` (week rows, one date per day; the
   voting brush `PUT .../paint` and `.../weekdays/{0-6}`) or `list` (the voting grid,
-  `PUT .../vote`). Both answer with the `grid` block of `schedule/show.html`. `model.rs` has
-  `calendar_weeks` and `usual_time`, with unit tests.
+  `PUT .../vote`). Both answer with the `grid` block of `schedule/show.html`. The voting rules
+  live in SQL views (`voting_polls`, `upcoming_options`, `votable_options`); write and count
+  through them rather than repeating the conditions. The answer writes return `Answered`
+  (`Changed` / `VotingClosed` / `NotThisPoll`), which `after_answer` turns into grid / reload /
+  404. `model.rs` has `tally` (the grid's counts and markers), `calendar_weeks` and
+  `usual_time`, with unit tests. `time::today` / `time::local_day` give days in `DISPLAY_TZ`.
 - `src/notifications/`: notifications (R10). Any change that should tell the other members
   calls `notifications::db::notify(&mut tx, &Notice { .. })` inside its transaction; a page
   that shows a thing calls `notifications::viewed(&state.db, &mut user, Viewing::..)` before

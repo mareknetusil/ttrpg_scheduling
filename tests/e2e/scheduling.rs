@@ -119,6 +119,30 @@ async fn vote_and_decide(db: SqlitePool) {
         vote(&mark, poll, 9999, "yes").await.status,
         StatusCode::NOT_FOUND
     );
+    // another poll's date, through this poll's URL
+    let other = gm
+        .post(
+            &format!("/campaigns/{id}/schedule"),
+            &[("title", "Other"), ("options", "2030-02-01T18:00")],
+        )
+        .await
+        .redirect_id("/schedule/");
+    let other_opt = option_ids(&app, other).await[0];
+    assert_eq!(
+        vote(&mark, poll, other_opt, "yes").await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        mark.delete(&format!("/schedule/{poll}/options/{other_opt}/vote"))
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM schedule_votes WHERE option_id = (SELECT MAX(id) FROM schedule_options)")
+            .await,
+        0
+    );
 
     // only the GM decides; it creates session 1 with the yes voters attending
     let decide = format!("/schedule/{poll}/decide");

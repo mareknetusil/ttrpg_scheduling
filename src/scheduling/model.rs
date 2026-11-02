@@ -1,3 +1,4 @@
+use crate::campaigns::model::Member;
 use crate::time::{self, When};
 use chrono::{Datelike, Duration, NaiveDate};
 use chrono_tz::Tz;
@@ -49,7 +50,8 @@ pub struct Poll {
 }
 
 impl Poll {
-    /// Members can vote: the poll is open and its deadline (if any) hasn't passed.
+    /// Members can vote: the poll is open and its deadline (if any) hasn't passed. For display
+    /// only (buttons, refreshing the grid); writes are guarded by the `voting_polls` view.
     pub fn voting_open(&self) -> bool {
         let deadline_passed = match self.deadline_at.as_deref().and_then(time::from_db) {
             Some(deadline) => deadline <= chrono::Utc::now(),
@@ -274,6 +276,131 @@ pub fn calendar_weeks(dates: &[NaiveDate], today: NaiveDate) -> Vec<Vec<Calendar
     weeks
 }
 
+/// What a request to answer dates did (`db::set_vote`, `clear_vote`, `set_unanswered`, `paint`).
+#[derive(Debug, PartialEq)]
+pub enum Answered {
+    Changed,
+    /// Nothing changed: since the page was loaded the poll was decided or cancelled, or the
+    /// deadline or the date(s) passed
+    VotingClosed,
+    /// Nothing changed: a date of another poll (a crafted request)
+    NotThisPoll,
+}
+
+/// One row of the voting grid.
+#[derive(serde::Serialize)]
+pub struct OptionView {
+    pub id: i64,
+    pub when: When,
+    pub yes: usize,
+    pub maybe: usize,
+    pub no: usize,
+    /// One answer per member, in the order of `members`
+    pub cells: Vec<Option<Answer>>,
+    pub mine: Option<Answer>,
+    pub is_best: bool,
+    /// Every member answered, and nobody said no
+    pub no_conflicts: bool,
+    pub is_decided: bool,
+}
+
+/// A member who hasn't answered every upcoming date yet.
+#[derive(serde::Serialize)]
+pub struct WaitingOn {
+    pub display_name: String,
+    /// How many upcoming dates they haven't answered
+    pub unanswered: usize,
+}
+
+/// The voting grid's numbers, worked out from the poll's rows (see `tally`).
+pub struct Tally {
+    pub options: Vec<OptionView>,
+    /// Dates still ahead
+    pub upcoming: usize,
+    /// Dates still ahead that `user_id` hasn't answered
+    pub unanswered: usize,
+    pub waiting_on: Vec<WaitingOn>,
+}
+
+/// Works out the voting grid: per date the answers of each member (in the order of `members`)
+/// and the counts, "most yes" and "no conflicts" markers, and who still has dates to answer.
+/// Past dates show their answers but get no markers and count as nothing to answer.
+pub fn tally(
+    options: &[OptionRow],
+    members: &[Member],
+    votes: &[VoteRow],
+    user_id: i64,
+    decided_option_id: Option<i64>,
+    tz: Tz,
+) -> Tally {
+    let mut answers: HashMap<(i64, i64), Answer> = HashMap::new();
+    for v in votes {
+        answers.insert((v.option_id, v.user_id), v.answer);
+    }
+    let mut options: Vec<OptionView> = options
+        .iter()
+        .map(|o| {
+            let when = When::from_db(&o.starts_at, tz);
+            let cells: Vec<Option<Answer>> = members
+                .iter()
+                .map(|m| answers.get(&(o.id, m.user_id)).copied())
+                .collect();
+            let count = |a: Answer| cells.iter().filter(|c| **c == Some(a)).count();
+            OptionView {
+                id: o.id,
+                yes: count(Answer::Yes),
+                maybe: count(Answer::Maybe),
+                no: count(Answer::No),
+                mine: answers.get(&(o.id, user_id)).copied(),
+                no_conflicts: !when.is_past
+                    && !members.is_empty()
+                    && cells
+                        .iter()
+                        .all(|c| matches!(c, Some(Answer::Yes | Answer::Maybe))),
+                cells,
+                is_best: false,
+                is_decided: decided_option_id == Some(o.id),
+                when,
+            }
+        })
+        .collect();
+    // "Most yes" (ties broken by maybe) among the dates still ahead, only once someone said yes.
+    // Ties all get the marker.
+    let best = options
+        .iter()
+        .filter(|o| !o.when.is_past)
+        .map(|o| (o.yes, o.maybe))
+        .max();
+    if let Some(best) = best.filter(|(yes, _)| *yes > 0) {
+        for o in &mut options {
+            o.is_best = !o.when.is_past && (o.yes, o.maybe) == best;
+        }
+    }
+    let upcoming = options.iter().filter(|o| !o.when.is_past).count();
+    let unanswered = options
+        .iter()
+        .filter(|o| !o.when.is_past && o.mine.is_none())
+        .count();
+    let waiting_on = members
+        .iter()
+        .enumerate()
+        .map(|(i, m)| WaitingOn {
+            display_name: m.display_name.clone(),
+            unanswered: options
+                .iter()
+                .filter(|o| !o.when.is_past && o.cells[i].is_none())
+                .count(),
+        })
+        .filter(|w| w.unanswered > 0)
+        .collect();
+    Tally {
+        options,
+        upcoming,
+        unanswered,
+        waiting_on,
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct VoteForm {
     pub answer: Answer,
@@ -363,5 +490,118 @@ mod tests {
         assert_eq!(weeks[2][1].option, Some(1));
         assert_eq!(weeks[2][6].date, "2026-12-13");
         assert!(calendar_weeks(&[], d("2026-11-25")).is_empty());
+    }
+
+    fn member(user_id: i64, name: &str) -> Member {
+        Member {
+            user_id,
+            username: name.to_lowercase(),
+            display_name: name.to_string(),
+            joined_at: "2026-01-01T00:00:00Z".to_string(),
+            deactivated: false,
+        }
+    }
+
+    fn row(id: i64, starts_at: &str) -> OptionRow {
+        OptionRow {
+            id,
+            starts_at: starts_at.to_string(),
+        }
+    }
+
+    fn votes(answers: &[(i64, i64, Answer)]) -> Vec<VoteRow> {
+        answers
+            .iter()
+            .map(|&(option_id, user_id, answer)| VoteRow {
+                option_id,
+                user_id,
+                answer,
+            })
+            .collect()
+    }
+
+    use Answer::{Maybe, No, Yes};
+    const PAST: &str = "2020-01-10T17:00:00Z";
+    const LATER: &str = "2030-01-10T17:00:00Z";
+    const LATER2: &str = "2030-01-11T17:00:00Z";
+    const LATER3: &str = "2030-01-12T17:00:00Z";
+
+    #[test]
+    fn most_yes_needs_a_yes_and_ignores_past_dates() {
+        let members = [member(1, "Gina"), member(2, "Mark")];
+        let rows = [row(1, PAST), row(2, LATER), row(3, LATER2)];
+        let tz = chrono_tz::UTC;
+
+        // nobody said yes yet: no marker, even with maybes
+        let t = tally(&rows, &members, &votes(&[(2, 1, Maybe)]), 1, None, tz);
+        assert!(t.options.iter().all(|o| !o.is_best));
+
+        // the past date has the most yes, but only future dates compete
+        let v = votes(&[
+            (1, 1, Yes),
+            (1, 2, Yes),
+            (2, 1, Yes),
+            (3, 2, Yes),
+            (3, 1, Maybe),
+        ]);
+        let t = tally(&rows, &members, &v, 1, None, tz);
+        let best: Vec<bool> = t.options.iter().map(|o| o.is_best).collect();
+        assert_eq!(
+            best,
+            [false, false, true],
+            "a tie on yes is broken by maybe"
+        );
+        assert_eq!(
+            (t.options[0].yes, t.options[2].yes, t.options[2].maybe),
+            (2, 1, 1)
+        );
+
+        // a real tie marks both
+        let v = votes(&[(2, 1, Yes), (3, 2, Yes)]);
+        let t = tally(&rows, &members, &v, 1, None, tz);
+        let best: Vec<bool> = t.options.iter().map(|o| o.is_best).collect();
+        assert_eq!(best, [false, true, true]);
+    }
+
+    #[test]
+    fn no_conflicts_needs_every_member_and_a_future_date() {
+        let members = [member(1, "Gina"), member(2, "Mark")];
+        let rows = [row(1, PAST), row(2, LATER), row(3, LATER2), row(4, LATER3)];
+        let v = votes(&[
+            (1, 1, Yes),
+            (1, 2, Yes),
+            (2, 1, Yes),
+            (2, 2, Maybe),
+            (3, 1, Yes),
+            (3, 2, No),
+            (4, 1, Yes),
+        ]);
+        let t = tally(&rows, &members, &v, 1, Some(2), chrono_tz::UTC);
+        let ok: Vec<bool> = t.options.iter().map(|o| o.no_conflicts).collect();
+        assert_eq!(ok, [false, true, false, false]);
+        assert_eq!(t.options[1].cells, [Some(Yes), Some(Maybe)]);
+        assert_eq!(t.options[3].cells, [Some(Yes), None]);
+        assert!(t.options[1].is_decided && !t.options[2].is_decided);
+        // nobody to ask, no conflicts to claim
+        let t = tally(&rows, &[], &v, 1, None, chrono_tz::UTC);
+        assert!(t.options.iter().all(|o| !o.no_conflicts));
+    }
+
+    #[test]
+    fn waiting_on_counts_only_dates_still_ahead() {
+        let members = [member(1, "Gina"), member(2, "Mark"), member(3, "Nina")];
+        let rows = [row(1, PAST), row(2, LATER), row(3, LATER2)];
+        // Gina answered both future dates, Mark one, Nina none (only the past one)
+        let v = votes(&[(2, 1, Yes), (3, 1, No), (2, 2, Maybe), (1, 3, Yes)]);
+        let t = tally(&rows, &members, &v, 2, None, chrono_tz::UTC);
+        assert_eq!(t.upcoming, 2);
+        assert_eq!(t.unanswered, 1, "Mark's own");
+        assert_eq!(t.options[1].mine, Some(Maybe));
+        let waiting: Vec<(&str, usize)> = t
+            .waiting_on
+            .iter()
+            .map(|w| (w.display_name.as_str(), w.unanswered))
+            .collect();
+        assert_eq!(waiting, [("Mark", 1), ("Nina", 2)]);
     }
 }

@@ -1,4 +1,6 @@
-use super::model::{Answer, Layout, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow};
+use super::model::{
+    Answer, Answered, Layout, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow,
+};
 use crate::game_sessions::{self, model::SessionStatus};
 use crate::notifications::{
     db::notify,
@@ -6,7 +8,7 @@ use crate::notifications::{
 };
 use crate::time;
 use chrono_tz::Tz;
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
 
 pub async fn create(
@@ -90,32 +92,81 @@ pub async fn votes(db: &SqlitePool, poll_id: i64) -> Result<Vec<VoteRow>, sqlx::
     .await
 }
 
-/// Records a vote, replacing an earlier one. Returns false if the option isn't part of this poll,
-/// the poll isn't open, its deadline has passed or the option's date has passed (so a crafted
-/// request can't vote on another poll's option either).
+/// Records a vote, replacing an earlier one, if the date can be answered now (`votable_options`).
 pub async fn set_vote(
     db: &SqlitePool,
     poll_id: i64,
     option_id: i64,
     user_id: i64,
     answer: Answer,
-) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query!(
-        "INSERT INTO schedule_votes (option_id, user_id, answer)
-         SELECT o.id, ?, ? FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id
-         WHERE o.id = ? AND p.id = ? AND p.status = 'open'
-           AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-           AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+) -> Result<Answered, sqlx::Error> {
+    // IMMEDIATE: the write lock at once, so the checks still hold when we write.
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
+    if !all_in_poll(&mut tx, poll_id, &[option_id]).await? {
+        return Ok(Answered::NotThisPoll);
+    }
+    if votable_ids(&mut tx, poll_id, &[option_id])
+        .await?
+        .is_empty()
+    {
+        return Ok(Answered::VotingClosed);
+    }
+    sqlx::query!(
+        "INSERT INTO schedule_votes (option_id, user_id, answer) VALUES (?, ?, ?)
          ON CONFLICT (option_id, user_id) DO UPDATE
          SET answer = excluded.answer, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
-        user_id,
-        answer,
         option_id,
-        poll_id
+        user_id,
+        answer
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
-    Ok(result.rows_affected() > 0)
+    tx.commit().await?;
+    Ok(Answered::Changed)
+}
+
+/// Are all of `option_ids` options of this poll?
+async fn all_in_poll(
+    conn: &mut SqliteConnection,
+    poll_id: i64,
+    option_ids: &[i64],
+) -> Result<bool, sqlx::Error> {
+    for option_id in option_ids {
+        let found = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_options WHERE id = ? AND poll_id = ?"#,
+            option_id,
+            poll_id
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+        if found == 0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Those of `option_ids` that can be answered now (`votable_options`: the poll is open for
+/// voting and the date is still ahead).
+async fn votable_ids(
+    conn: &mut SqliteConnection,
+    poll_id: i64,
+    option_ids: &[i64],
+) -> Result<Vec<i64>, sqlx::Error> {
+    let mut votable = Vec::new();
+    for option_id in option_ids {
+        let found = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!: i64" FROM votable_options WHERE id = ? AND poll_id = ?"#,
+            option_id,
+            poll_id
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+        if found > 0 {
+            votable.push(*option_id);
+        }
+    }
+    Ok(votable)
 }
 
 /// Saves an edited open poll. Existing options are matched to the new ones: by their exact time
@@ -212,88 +263,70 @@ pub async fn vote_counts(db: &SqlitePool, poll_id: i64) -> Result<Vec<(String, i
     Ok(rows.into_iter().map(|r| (r.starts_at, r.count)).collect())
 }
 
-/// Answers every future option the user hasn't answered yet ("answer the rest"). Like `set_vote`,
-/// only while voting is open; returns false if it isn't.
+/// Answers every date still ahead that the user hasn't answered yet ("answer the rest"), if
+/// voting is open (`voting_polls`).
 pub async fn set_unanswered(
     db: &SqlitePool,
     poll_id: i64,
     user_id: i64,
     answer: Answer,
-) -> Result<bool, sqlx::Error> {
+) -> Result<Answered, sqlx::Error> {
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
     let open = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_polls
-           WHERE id = ? AND status = 'open'
-             AND (deadline_at IS NULL OR deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"#,
+        r#"SELECT COUNT(*) AS "n!: i64" FROM voting_polls WHERE id = ?"#,
         poll_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?;
     if open == 0 {
-        return Ok(false);
+        return Ok(Answered::VotingClosed);
     }
     sqlx::query!(
         "INSERT INTO schedule_votes (option_id, user_id, answer)
-         SELECT o.id, ?, ? FROM schedule_options AS o
-         WHERE o.poll_id = ? AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+         SELECT o.id, ?, ? FROM votable_options AS o
+         WHERE o.poll_id = ?
            AND NOT EXISTS (SELECT 1 FROM schedule_votes AS v WHERE v.option_id = o.id AND v.user_id = ?)",
         user_id,
         answer,
         poll_id,
         user_id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
-    Ok(true)
+    tx.commit().await?;
+    Ok(Answered::Changed)
 }
 
 /// The brush of a calendar poll: gives `answer` to each option in `option_ids` (one day, or every
 /// day of a weekday), or, if they all have that answer already, clears them, so tapping a
-/// painted day again undoes it. Only this poll's future options count. Like `set_vote`, only
-/// while voting is open; returns false (and changes nothing) if it isn't, or if none of the
-/// options can be voted on.
+/// painted day again undoes it. Only the dates that can be answered now (`votable_options`)
+/// count; if there are none, nothing changes.
 pub async fn paint(
     db: &SqlitePool,
     poll_id: i64,
     user_id: i64,
     option_ids: &[i64],
     answer: Answer,
-) -> Result<bool, sqlx::Error> {
-    let open = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "n!: i64" FROM schedule_polls
-           WHERE id = ? AND status = 'open'
-             AND (deadline_at IS NULL OR deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"#,
-        poll_id
-    )
-    .fetch_one(db)
-    .await?;
-    if open == 0 {
-        return Ok(false);
+) -> Result<Answered, sqlx::Error> {
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
+    if !all_in_poll(&mut tx, poll_id, option_ids).await? {
+        return Ok(Answered::NotThisPoll);
     }
-    let mut targets = Vec::new();
-    let mut all_have_it = true;
-    for option_id in option_ids {
-        let Some(row) = sqlx::query!(
-            r#"SELECT v.answer AS "answer?: Answer"
-               FROM schedule_options AS o
-               LEFT JOIN schedule_votes AS v ON v.option_id = o.id AND v.user_id = ?
-               WHERE o.id = ? AND o.poll_id = ?
-                 AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"#,
-            user_id,
-            option_id,
-            poll_id
-        )
-        .fetch_optional(db)
-        .await?
-        else {
-            continue;
-        };
-        all_have_it = all_have_it && row.answer == Some(answer);
-        targets.push(*option_id);
-    }
+    let targets = votable_ids(&mut tx, poll_id, option_ids).await?;
     if targets.is_empty() {
-        return Ok(false);
+        return Ok(Answered::VotingClosed);
     }
-    let mut tx = db.begin().await?;
+    let mut all_have_it = true;
+    for option_id in &targets {
+        let mine = sqlx::query_scalar!(
+            r#"SELECT answer AS "answer: Answer" FROM schedule_votes WHERE option_id = ? AND user_id = ?"#,
+            option_id,
+            user_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        all_have_it = all_have_it && mine == Some(answer);
+    }
     for option_id in &targets {
         if all_have_it {
             sqlx::query!(
@@ -317,39 +350,36 @@ pub async fn paint(
         }
     }
     tx.commit().await?;
-    Ok(true)
+    Ok(Answered::Changed)
 }
 
-/// Removes the user's answer to an option (back to "no answer"), under the same conditions as
-/// `set_vote`. Returns false if the option can't be voted on (any more).
+/// Removes the user's answer to an option (back to "no answer"), if the date can be answered
+/// now (`votable_options`).
 pub async fn clear_vote(
     db: &SqlitePool,
     poll_id: i64,
     option_id: i64,
     user_id: i64,
-) -> Result<bool, sqlx::Error> {
-    let votable = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "n!: i64"
-           FROM schedule_options AS o JOIN schedule_polls AS p ON p.id = o.poll_id
-           WHERE o.id = ? AND p.id = ? AND p.status = 'open'
-             AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-             AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"#,
-        option_id,
-        poll_id
-    )
-    .fetch_one(db)
-    .await?;
-    if votable == 0 {
-        return Ok(false);
+) -> Result<Answered, sqlx::Error> {
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
+    if !all_in_poll(&mut tx, poll_id, &[option_id]).await? {
+        return Ok(Answered::NotThisPoll);
+    }
+    if votable_ids(&mut tx, poll_id, &[option_id])
+        .await?
+        .is_empty()
+    {
+        return Ok(Answered::VotingClosed);
     }
     sqlx::query!(
         "DELETE FROM schedule_votes WHERE option_id = ? AND user_id = ?",
         option_id,
         user_id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
-    Ok(true)
+    tx.commit().await?;
+    Ok(Answered::Changed)
 }
 
 /// How many open polls the campaign has (each is probably for a different next session).
@@ -377,10 +407,9 @@ pub async fn decide(
     // and the writes (e.g. a double click deciding twice).
     let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
     let Some(option) = sqlx::query!(
-        "SELECT p.campaign_id, o.starts_at
-         FROM schedule_polls AS p JOIN schedule_options AS o ON o.poll_id = p.id
-         WHERE p.id = ? AND o.id = ? AND p.status = 'open'
-           AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+        r#"SELECT p.campaign_id, o.starts_at AS "starts_at!"
+           FROM schedule_polls AS p JOIN upcoming_options AS o ON o.poll_id = p.id
+           WHERE p.id = ? AND o.id = ? AND p.status = 'open'"#,
         poll_id,
         option_id
     )
@@ -516,13 +545,10 @@ pub async fn for_campaign(
         PollSummary,
         r#"SELECT p.id AS "id!", p.campaign_id, c.name AS campaign_name, p.title,
                   p.status AS "status: PollStatus",
-                  (p.status = 'open' AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
-                    AS "voting_open!: bool",
-                  (SELECT COUNT(*) FROM schedule_options
-                   WHERE poll_id = p.id AND starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "option_count!: i64",
-                  (SELECT COUNT(*) FROM schedule_votes AS v JOIN schedule_options AS o ON o.id = v.option_id
-                   WHERE o.poll_id = p.id AND v.user_id = ?
-                     AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "my_vote_count!: i64"
+                  p.id IN (SELECT id FROM voting_polls) AS "voting_open!: bool",
+                  (SELECT COUNT(*) FROM upcoming_options WHERE poll_id = p.id) AS "option_count!: i64",
+                  (SELECT COUNT(*) FROM schedule_votes AS v JOIN upcoming_options AS o ON o.id = v.option_id
+                   WHERE o.poll_id = p.id AND v.user_id = ?) AS "my_vote_count!: i64"
            FROM schedule_polls AS p JOIN campaigns AS c ON c.id = p.campaign_id
            WHERE p.campaign_id = ?
            ORDER BY p.status = 'open' DESC, p.created_at DESC
@@ -541,13 +567,10 @@ pub async fn open_for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<PollSumm
         PollSummary,
         r#"SELECT p.id AS "id!", p.campaign_id, c.name AS campaign_name, p.title,
                   p.status AS "status: PollStatus",
-                  (p.status = 'open' AND (p.deadline_at IS NULL OR p.deadline_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
-                    AS "voting_open!: bool",
-                  (SELECT COUNT(*) FROM schedule_options
-                   WHERE poll_id = p.id AND starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "option_count!: i64",
-                  (SELECT COUNT(*) FROM schedule_votes AS v JOIN schedule_options AS o ON o.id = v.option_id
-                   WHERE o.poll_id = p.id AND v.user_id = ?
-                     AND o.starts_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) AS "my_vote_count!: i64"
+                  p.id IN (SELECT id FROM voting_polls) AS "voting_open!: bool",
+                  (SELECT COUNT(*) FROM upcoming_options WHERE poll_id = p.id) AS "option_count!: i64",
+                  (SELECT COUNT(*) FROM schedule_votes AS v JOIN upcoming_options AS o ON o.id = v.option_id
+                   WHERE o.poll_id = p.id AND v.user_id = ?) AS "my_vote_count!: i64"
            FROM schedule_polls AS p
            JOIN campaigns AS c ON c.id = p.campaign_id
            JOIN campaign_members AS m ON m.campaign_id = p.campaign_id AND m.user_id = ?

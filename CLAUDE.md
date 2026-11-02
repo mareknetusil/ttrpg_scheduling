@@ -114,6 +114,11 @@ finished. Keep the code simple and explicit so the owner can still read and main
   voting brush `PUT .../paint` and `.../weekdays/{0-6}`) or `list` (the voting grid,
   `PUT .../vote`). Both answer with the `grid` block of `schedule/show.html`. `model.rs` has
   `calendar_weeks` and `usual_time`, with unit tests.
+- `src/notifications/`: notifications (R10). Any change that should tell the other members
+  calls `notifications::db::notify(&mut tx, &Notice { .. })` inside its transaction; a page
+  that shows a thing calls `notifications::viewed(&state.db, &mut user, Viewing::..)` before
+  rendering (it also lowers `CurrentUser.unseen`, the nav count). Deleting a thing deletes its
+  notifications first (they hold foreign keys). `GET /notifications`, `PUT /notifications/seen`.
 - `src/game_sessions/`: game sessions (`/sessions/{id}`: edit, attendance, entries), entries
   (`/entries/{id}`), history (`/campaigns/{id}/history`), upcoming lists for dashboard/campaign,
   and adding a session without a poll (`/campaigns/{id}/sessions/new`). `db::renumber` keeps

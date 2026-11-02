@@ -163,7 +163,7 @@ pub async fn close(
     if !access.can_manage() {
         return Err(AppError::NotFound);
     }
-    db::close(&state.db, poll_id).await?;
+    db::close(&state.db, poll_id, user.id).await?;
     let (poll, access) = load(&state, poll_id, &user).await?;
     render_poll(&state, &poll, &user, &access).await
 }

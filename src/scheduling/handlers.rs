@@ -76,10 +76,16 @@ pub async fn create(
 
 pub async fn show(
     State(state): State<Arc<AppState>>,
-    user: CurrentUser,
+    mut user: CurrentUser,
     Path(poll_id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (poll, campaign, access) = load_poll(&state, poll_id, &user).await?;
+    crate::notifications::viewed(
+        &state.db,
+        &mut user,
+        crate::notifications::model::Viewing::SchedulePoll(poll_id),
+    )
+    .await?;
     let ctx = poll_context(&state, &user, &poll, &campaign, &access).await?;
     let comments =
         crate::comments::views(&state, campaign.id, None, Some(poll.id), &user, &access).await?;
@@ -370,7 +376,7 @@ pub async fn decide(
     if !access.can_manage() {
         return Err(AppError::NotFound);
     }
-    match db::decide(&state.db, poll_id, form.option_id).await? {
+    match db::decide(&state.db, poll_id, form.option_id, user.id).await? {
         Some(session_id) => Ok(Redirect::to(&format!("/sessions/{session_id}")).into_response()),
         // Already decided or cancelled (e.g. a double click): show the poll as it is now.
         None => Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response()),
@@ -386,7 +392,7 @@ pub async fn cancel(
     if !access.can_manage() {
         return Err(AppError::NotFound);
     }
-    db::cancel(&state.db, poll_id).await?;
+    db::cancel(&state.db, poll_id, user.id).await?;
     Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
 }
 
@@ -401,7 +407,7 @@ pub async fn reopen(
     if !access.can_manage() {
         return Err(AppError::NotFound);
     }
-    db::reopen(&state.db, poll_id).await?;
+    db::reopen(&state.db, poll_id, user.id).await?;
     Ok(Redirect::to(&format!("/schedule/{poll_id}")).into_response())
 }
 

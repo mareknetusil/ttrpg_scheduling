@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{# Context:
+     current_user  required (nav; current_user.unseen is the count)
+     unseen        list of notifications (see notifications/_item.html), newest first: all unseen
+     seen          the same, the last 20 seen ones
+
+   Requests:
+     PUT /notifications/seen   htmx, "Mark all as seen"; answers with HX-Refresh
+   Opening a notification's link marks it as seen (the page it leads to does that). #}
+
+{% block title %}Notifications · TTRPG Scheduling{% endblock %}
+{% block nav_notifications %}aria-current="page"{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <p class="muted">What changed in your campaigns. Opening one marks it as seen.</p>
+  </div>
+  {% if unseen %}
+    <button type="button" class="button button--secondary" id="mark-all-seen"
+            hx-put="/notifications/seen">Mark all as seen</button>
+  {% endif %}
+</section>
+
+<section class="card">
+  {% if unseen %}
+    <h2>New</h2>
+    <ul class="notification-list" id="unseen">
+      {% for n in unseen %}{% include "notifications/_item.html" %}{% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted" id="all-seen">You're all caught up.</p>
+  {% endif %}
+</section>
+
+{% if seen %}
+  <section class="card">
+    <h2>Seen</h2>
+    <ul class="notification-list" id="seen">
+      {% for n in seen %}{% include "notifications/_item.html" %}{% endfor %}
+    </ul>
+  </section>
+{% endif %}
+{% endblock %}

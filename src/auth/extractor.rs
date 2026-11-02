@@ -12,6 +12,9 @@ pub struct CurrentUser {
     pub username: String,
     pub display_name: String,
     pub is_admin: bool,
+    /// Unseen notifications, for the nav. A page that marks some as seen lowers it before
+    /// rendering (`notifications::viewed`).
+    pub unseen: i64,
 }
 
 impl FromRequestParts<Arc<crate::AppState>> for CurrentUser {
@@ -25,7 +28,9 @@ impl FromRequestParts<Arc<crate::AppState>> for CurrentUser {
         let token = jar.get("session").ok_or(AppError::Unauthorized)?.value();
         sqlx::query_as!(
             CurrentUser,
-            r#"SELECT u.id, u.username, u.display_name, u.is_admin AS "is_admin: bool"
+            r#"SELECT u.id, u.username, u.display_name, u.is_admin AS "is_admin: bool",
+                (SELECT COUNT(*) FROM notifications WHERE user_id = u.id AND seen_at IS NULL)
+                  AS "unseen!: i64"
             FROM auth_sessions s JOIN users u ON u.id = s.user_id
             WHERE s.id = ? AND s.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
               AND u.deactivated_at IS NULL"#,

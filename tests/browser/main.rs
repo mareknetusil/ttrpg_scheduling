@@ -767,11 +767,18 @@ async fn voting_grid_fits_a_phone(db: SqlitePool) {
 #[ignore = "needs Firefox and geckodriver"]
 async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
     let app = spawn_app(db).await;
-    // A site admin with a long name: the fullest header there is
+    // A site admin with a long name and a notification count: the fullest header there is
     let gm = app.admin("maximilianvonhohenstein").await;
     let id = gm.create_campaign("Camp").await;
     let mark = app.user("mark").await;
     app.add_member(id, &mark).await;
+    for body in [
+        "A rather long comment that goes on and on about the next session",
+        "Two",
+    ] {
+        mark.post(&format!("/campaigns/{id}/comments"), &[("body_md", body)])
+            .await;
+    }
     let poll = gm
         .post(
             &format!("/campaigns/{id}/schedule"),
@@ -806,6 +813,7 @@ async fn pages_fit_a_phone_with_whats_next_first(db: SqlitePool) {
     b.login("maximilianvonhohenstein").await;
     for path in [
         "/".to_string(),
+        "/notifications".to_string(),
         format!("/campaigns/{id}"),
         format!("/campaigns/{id}/history"),
         format!("/campaigns/{id}/members"),
@@ -883,5 +891,45 @@ async fn pick_buttons_show_on_demand_while_voting(db: SqlitePool) {
         .unwrap();
     b.el(&format!("#vote-{opt}-yes[aria-pressed='true']")).await;
     assert!(b.el(".pick-form").await.is_displayed().await.unwrap());
+    b.quit().await;
+}
+
+#[sqlx::test]
+#[ignore = "needs Firefox and geckodriver"]
+async fn mark_all_as_seen_updates_the_count(db: SqlitePool) {
+    let app = spawn_app(db).await;
+    let gm = app.user("gina").await;
+    let id = gm.create_campaign("Camp").await;
+    let mark = app.user("mark").await;
+    app.add_member(id, &mark).await;
+    mark.post(&format!("/campaigns/{id}/comments"), &[("body_md", "Hi")])
+        .await;
+
+    let b = Browser::start(&app).await;
+    b.login("gina").await;
+    assert_eq!(b.el(".site-nav__count").await.text().await.unwrap(), "1");
+    b.el("#notifications #mark-all-seen")
+        .await
+        .click()
+        .await
+        .unwrap();
+    // HX-Refresh reloads the dashboard: no card, no count
+    b.driver
+        .query(By::Css("#notifications"))
+        .not_exists()
+        .await
+        .unwrap();
+    assert!(
+        b.driver
+            .find_all(By::Css(".site-nav__count"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        app.scalar("SELECT COUNT(*) FROM notifications WHERE seen_at IS NULL")
+            .await,
+        0
+    );
     b.quit().await;
 }

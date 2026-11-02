@@ -11,13 +11,19 @@ use std::sync::Arc;
 
 pub async fn show(
     State(state): State<Arc<AppState>>,
-    user: CurrentUser,
+    mut user: CurrentUser,
     Path((id, slug)): Path<(i64, String)>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
     let page = db::get(&state.db, id, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
+    crate::notifications::viewed(
+        &state.db,
+        &mut user,
+        crate::notifications::model::Viewing::CampaignPage(page.id),
+    )
+    .await?;
     let pages = db::list(&state.db, id).await?;
     state.render(
         "pages/show.html",
@@ -126,7 +132,7 @@ pub async fn update(
             )?
             .into_response());
     }
-    db::update(&state.db, page.id, &form).await?;
+    db::update(&state.db, id, page.id, &form, user.id).await?;
     Ok(Redirect::to(&format!("/campaigns/{id}/pages/{slug}")).into_response())
 }
 

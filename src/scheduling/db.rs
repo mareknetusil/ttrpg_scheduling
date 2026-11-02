@@ -1,4 +1,8 @@
 use super::model::{Answer, Layout, NewPoll, OptionRow, Poll, PollStatus, PollSummary, VoteRow};
+use crate::notifications::{
+    db::notify,
+    model::{Kind, Notice, Target},
+};
 use crate::time;
 use chrono_tz::Tz;
 use sqlx::sqlite::{SqliteConnection, SqlitePool};
@@ -33,6 +37,19 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     }
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id,
+            actor_id: user_id,
+            kind: Kind::SchedulePollOpened,
+            target: Target {
+                schedule_poll_id: Some(poll_id),
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(poll_id)
 }
@@ -346,12 +363,13 @@ pub async fn open_poll_count(db: &SqlitePool, campaign_id: i64) -> Result<i64, s
 
 /// Decides the poll (R3) in one transaction: creates a game session of the campaign at the
 /// option's time (numbered by date), pre-fills attendance with the members who voted yes, and marks the poll
-/// decided. Returns the new game session id, or `None` if the poll isn't open or the option
-/// isn't one of its options.
+/// decided, and tells the members (`actor_id` decided). Returns the new game session id, or
+/// `None` if the poll isn't open or the option isn't one of its options.
 pub async fn decide(
     db: &SqlitePool,
     poll_id: i64,
     option_id: i64,
+    actor_id: i64,
 ) -> Result<Option<i64>, sqlx::Error> {
     let mut tx = db.begin().await?;
     // The first statement writes (takes SQLite's write lock at once) and checks everything.
@@ -391,6 +409,19 @@ pub async fn decide(
     .execute(&mut *tx)
     .await?;
     crate::game_sessions::db::renumber(&mut tx, session.campaign_id).await?;
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id: session.campaign_id,
+            actor_id,
+            kind: Kind::SchedulePollDecided,
+            target: Target {
+                schedule_poll_id: Some(poll_id),
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(Some(session.id))
 }
@@ -417,8 +448,9 @@ pub async fn session_untouched(
 /// Undoes a decision (a wrong click, or the date fell through): the poll is open again, with its
 /// votes, and the game session the decision created is deleted. The one exception to "sessions
 /// are never deleted", allowed only while `session_untouched`. Returns false (and changes
-/// nothing) if the poll isn't decided or the session isn't untouched.
-pub async fn reopen(db: &SqlitePool, poll_id: i64) -> Result<bool, sqlx::Error> {
+/// nothing) if the poll isn't decided or the session isn't untouched. Tells the members
+/// (`actor_id` reopened it).
+pub async fn reopen(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<bool, sqlx::Error> {
     let mut tx = db.begin().await?;
     let Some(row) = sqlx::query!(
         r#"SELECT game_session_id AS "session_id!", campaign_id FROM schedule_polls
@@ -446,23 +478,62 @@ pub async fn reopen(db: &SqlitePool, poll_id: i64) -> Result<bool, sqlx::Error> 
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM notifications WHERE game_session_id = ?",
+        row.session_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM game_sessions WHERE id = ?", row.session_id)
         .execute(&mut *tx)
         .await?;
     crate::game_sessions::db::renumber(&mut tx, row.campaign_id).await?;
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id: row.campaign_id,
+            actor_id,
+            kind: Kind::SchedulePollReopened,
+            target: Target {
+                schedule_poll_id: Some(poll_id),
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(true)
 }
 
-/// Returns false if the poll wasn't open.
-pub async fn cancel(db: &SqlitePool, poll_id: i64) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query!(
-        "UPDATE schedule_polls SET status = 'cancelled' WHERE id = ? AND status = 'open'",
+/// Cancels an open poll and tells the members (`actor_id` cancelled it). Returns false if the
+/// poll wasn't open.
+pub async fn cancel(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let Some(campaign_id) = sqlx::query_scalar!(
+        "UPDATE schedule_polls SET status = 'cancelled' WHERE id = ? AND status = 'open'
+         RETURNING campaign_id",
         poll_id
     )
-    .execute(db)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(false);
+    };
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id,
+            actor_id,
+            kind: Kind::SchedulePollCancelled,
+            target: Target {
+                schedule_poll_id: Some(poll_id),
+                ..Target::default()
+            },
+        },
+    )
     .await?;
-    Ok(result.rows_affected() > 0)
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// The campaign's polls: open ones first, then the 10 most recent closed ones.

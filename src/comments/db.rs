@@ -1,4 +1,8 @@
 use super::model::Comment;
+use crate::notifications::{
+    db::notify,
+    model::{Kind, Notice, Target},
+};
 use sqlx::sqlite::SqlitePool;
 
 /// Comments of a campaign (both ids `None`), of one game session or of one scheduling poll,
@@ -38,6 +42,7 @@ pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<Comment>, sqlx::Erro
     .await
 }
 
+/// Adds a comment and tells the other members.
 pub async fn create(
     db: &SqlitePool,
     campaign_id: i64,
@@ -46,6 +51,7 @@ pub async fn create(
     author_id: i64,
     body_md: &str,
 ) -> Result<i64, sqlx::Error> {
+    let mut tx = db.begin().await?;
     let id = sqlx::query!(
         "INSERT INTO comments (campaign_id, game_session_id, schedule_poll_id, author_id, body_md)
          VALUES (?, ?, ?, ?, ?)",
@@ -55,9 +61,25 @@ pub async fn create(
         author_id,
         body_md
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?
     .last_insert_rowid();
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id,
+            actor_id: author_id,
+            kind: Kind::CommentAdded,
+            target: Target {
+                comment_id: Some(id),
+                game_session_id: session_id,
+                schedule_poll_id: poll_id,
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(id)
 }
 
@@ -72,9 +94,15 @@ pub async fn update(db: &SqlitePool, id: i64, body_md: &str) -> Result<(), sqlx:
     Ok(())
 }
 
+/// Deletes a comment and the notifications about it.
 pub async fn delete(db: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM comments WHERE id = ?", id)
-        .execute(db)
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM notifications WHERE comment_id = ?", id)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM comments WHERE id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }

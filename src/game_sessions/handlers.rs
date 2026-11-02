@@ -26,10 +26,16 @@ use std::sync::Arc;
 
 pub async fn show(
     State(state): State<Arc<AppState>>,
-    user: CurrentUser,
+    mut user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (session, campaign, access) = load_session(&state, id, &user).await?;
+    crate::notifications::viewed(
+        &state.db,
+        &mut user,
+        crate::notifications::model::Viewing::GameSession(id),
+    )
+    .await?;
     render_session(
         &state,
         &user,
@@ -68,7 +74,15 @@ pub async fn update(
         }
     };
     let status = form.status.unwrap_or(session.status);
-    db::update(&state.db, &session, &form.title, &to_db(starts_at), status).await?;
+    db::update(
+        &state.db,
+        &session,
+        &form.title,
+        &to_db(starts_at),
+        status,
+        user.id,
+    )
+    .await?;
     Ok(Redirect::to(&format!("/sessions/{id}")).into_response())
 }
 
@@ -111,7 +125,7 @@ pub async fn create_entry(
                 .into_response(),
         );
     }
-    let entry_id = db::create_entry(&state.db, id, user.id, &form).await?;
+    let entry_id = db::create_entry(&state.db, campaign.id, id, user.id, &form).await?;
     Ok(Redirect::to(&format!("/sessions/{id}#entry-{entry_id}")).into_response())
 }
 
@@ -149,7 +163,7 @@ pub async fn update_entry(
         )?
         .into_response());
     }
-    db::update_entry(&state.db, entry_id, &form).await?;
+    db::update_entry(&state.db, campaign.id, &entry, &form, user.id).await?;
     Ok(Redirect::to(&format!("/sessions/{}#entry-{entry_id}", session.id)).into_response())
 }
 
@@ -235,6 +249,7 @@ pub async fn create(
         &to_db(starts_at),
         status,
         &form.user_ids,
+        user.id,
     )
     .await?;
     Ok(Redirect::to(&format!("/sessions/{session_id}")).into_response())

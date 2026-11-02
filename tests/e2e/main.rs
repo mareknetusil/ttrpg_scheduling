@@ -9,6 +9,7 @@ mod campaigns;
 mod card_style;
 mod comments_polls;
 mod invites;
+mod notifications;
 mod pages;
 mod scheduling;
 mod sessions;

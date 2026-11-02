@@ -12,6 +12,7 @@ mod error;
 mod game_sessions;
 mod invites;
 mod markdown;
+mod notifications;
 mod pages;
 mod polls;
 mod scheduling;
@@ -94,10 +95,13 @@ async fn index(
         .into_iter()
         .map(|row| game_sessions::model::UpcomingView::new(row, state.tz))
         .collect();
+    // The newest few unseen notifications; the nav links to all of them
+    let notifications = notifications::views(&state, user.id, false, 5).await?;
     state.render(
         "index.html",
         context! {
             current_user => minijinja::value::Serde(&user),
+            notifications => minijinja::value::Serde(&notifications),
             campaigns => minijinja::value::Serde(&campaigns),
             to_vote => minijinja::value::Serde(&to_vote),
             polls => minijinja::value::Serde(&polls),
@@ -177,6 +181,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/polls", polls::router())
         .nest("/invite", invites::router())
         .nest("/admin", admin::router())
+        .nest("/notifications", notifications::router())
         .route("/markdown/preview", post(markdown_preview))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new("static"))

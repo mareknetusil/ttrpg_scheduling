@@ -1,6 +1,10 @@
 use super::model::{
     Attendee, Entry, EntryForm, EntryKind, GameSession, HistoryRow, SessionStatus, UpcomingRow,
 };
+use crate::notifications::{
+    db::notify,
+    model::{Kind, Notice, Target},
+};
 use sqlx::sqlite::{SqliteConnection, SqlitePool};
 
 pub async fn get(db: &SqlitePool, id: i64) -> Result<Option<GameSession>, sqlx::Error> {
@@ -78,8 +82,8 @@ pub async fn history(db: &SqlitePool, campaign_id: i64) -> Result<Vec<HistoryRow
     .await
 }
 
-/// Adds a session by hand (not from a poll) with the given attendance, in one transaction.
-/// Members' ids only; others are ignored.
+/// Adds a session by hand (not from a poll) with the given attendance, in one transaction, and
+/// tells the members (`actor_id` added it). Members' ids only; others are ignored.
 pub async fn create(
     db: &SqlitePool,
     campaign_id: i64,
@@ -87,6 +91,7 @@ pub async fn create(
     starts_at: &str,
     status: SessionStatus,
     user_ids: &[i64],
+    actor_id: i64,
 ) -> Result<i64, sqlx::Error> {
     let mut tx = db.begin().await?;
     // A placeholder number (unique for now); `renumber` puts it in date order.
@@ -114,6 +119,19 @@ pub async fn create(
         .await?;
     }
     renumber(&mut tx, campaign_id).await?;
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id,
+            actor_id,
+            kind: Kind::SessionAdded,
+            target: Target {
+                game_session_id: Some(id),
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(id)
 }
@@ -141,12 +159,15 @@ pub async fn renumber(conn: &mut SqliteConnection, campaign_id: i64) -> Result<(
     Ok(())
 }
 
+/// Saves title, date and status. Cancelling the session or moving it to another date tells the
+/// members (`actor_id` did it).
 pub async fn update(
     db: &SqlitePool,
     session: &GameSession,
     title: &str,
     starts_at: &str,
     status: SessionStatus,
+    actor_id: i64,
 ) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
     sqlx::query!(
@@ -160,6 +181,28 @@ pub async fn update(
     .await?;
     if starts_at != session.starts_at {
         renumber(&mut tx, session.campaign_id).await?;
+    }
+    let kind = if status == SessionStatus::Cancelled && session.status != SessionStatus::Cancelled {
+        Some(Kind::SessionCancelled)
+    } else if starts_at != session.starts_at {
+        Some(Kind::SessionMoved)
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        notify(
+            &mut tx,
+            &Notice {
+                campaign_id: session.campaign_id,
+                actor_id,
+                kind,
+                target: Target {
+                    game_session_id: Some(session.id),
+                    ..Target::default()
+                },
+            },
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(())
@@ -220,12 +263,15 @@ pub async fn entry(db: &SqlitePool, id: i64) -> Result<Option<Entry>, sqlx::Erro
     .await
 }
 
+/// Adds an entry to a session of `campaign_id` and tells the other members.
 pub async fn create_entry(
     db: &SqlitePool,
+    campaign_id: i64,
     session_id: i64,
     author_id: i64,
     form: &EntryForm,
 ) -> Result<i64, sqlx::Error> {
+    let mut tx = db.begin().await?;
     let id = sqlx::query!(
         "INSERT INTO game_session_entries (game_session_id, kind, title, body_md, author_id) VALUES (?, ?, ?, ?, ?)",
         session_id,
@@ -234,29 +280,78 @@ pub async fn create_entry(
         form.body_md,
         author_id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?
     .last_insert_rowid();
+    notify(
+        &mut tx,
+        &entry_notice(campaign_id, session_id, id, author_id, Kind::EntryAdded),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(id)
 }
 
-pub async fn update_entry(db: &SqlitePool, id: i64, form: &EntryForm) -> Result<(), sqlx::Error> {
+/// Saves an edited entry (of a session of `campaign_id`) and tells the members (`actor_id`
+/// edited it: the author, or the GM).
+pub async fn update_entry(
+    db: &SqlitePool,
+    campaign_id: i64,
+    entry: &Entry,
+    form: &EntryForm,
+    actor_id: i64,
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE game_session_entries SET kind = ?, title = ?, body_md = ?,
          updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
         form.kind,
         form.title,
         form.body_md,
-        id
+        entry.id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    let notice = entry_notice(
+        campaign_id,
+        entry.game_session_id,
+        entry.id,
+        actor_id,
+        Kind::EntryEdited,
+    );
+    notify(&mut tx, &notice).await?;
+    tx.commit().await?;
     Ok(())
 }
 
+fn entry_notice(
+    campaign_id: i64,
+    session_id: i64,
+    entry_id: i64,
+    actor_id: i64,
+    kind: Kind,
+) -> Notice {
+    Notice {
+        campaign_id,
+        actor_id,
+        kind,
+        target: Target {
+            game_session_id: Some(session_id),
+            entry_id: Some(entry_id),
+            ..Target::default()
+        },
+    }
+}
+
+/// Deletes an entry and the notifications about it.
 pub async fn delete_entry(db: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM game_session_entries WHERE id = ?", id)
-        .execute(db)
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM notifications WHERE entry_id = ?", id)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM game_session_entries WHERE id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }

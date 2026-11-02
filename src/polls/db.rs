@@ -1,4 +1,8 @@
 use super::model::{NewPoll, OptionRow, Poll, VoteRow};
+use crate::notifications::{
+    db::notify,
+    model::{Kind, Notice, Target},
+};
 use sqlx::sqlite::SqlitePool;
 
 pub async fn create(
@@ -34,6 +38,20 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     }
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id,
+            actor_id: user_id,
+            kind: Kind::PollCreated,
+            target: Target {
+                poll_id: Some(poll_id),
+                game_session_id: session_id,
+                ..Target::default()
+            },
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(poll_id)
 }
@@ -124,12 +142,33 @@ pub async fn set_votes(
     Ok(())
 }
 
-pub async fn close(db: &SqlitePool, poll_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE polls SET closed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND closed_at IS NULL",
+/// Closes the poll (if it isn't closed yet) and tells the members (`actor_id` closed it).
+pub async fn close(db: &SqlitePool, poll_id: i64, actor_id: i64) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let Some(poll) = sqlx::query!(
+        "UPDATE polls SET closed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND closed_at IS NULL
+         RETURNING campaign_id, game_session_id",
         poll_id
     )
-    .execute(db)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    notify(
+        &mut tx,
+        &Notice {
+            campaign_id: poll.campaign_id,
+            actor_id,
+            kind: Kind::PollClosed,
+            target: Target {
+                poll_id: Some(poll_id),
+                game_session_id: poll.game_session_id,
+                ..Target::default()
+            },
+        },
+    )
     .await?;
+    tx.commit().await?;
     Ok(())
 }

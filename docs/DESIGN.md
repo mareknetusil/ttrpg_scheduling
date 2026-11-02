@@ -1,6 +1,6 @@
 # TTRPG Scheduling: Design Document
 
-Status: v1.1 (2026-11-02). Progress: M0–M12 done.
+Status: v1.2 (2026-11-02). Progress: M0–M13 done.
 
 ## 1. Goals and non-goals
 
@@ -31,6 +31,7 @@ Status: v1.1 (2026-11-02). Progress: M0–M12 done.
 | R7 | Members can comment on campaigns, game sessions and scheduling polls. | |
 | R8 | The GM can create polls for a campaign or a specific game session. | Single or multiple choice. |
 | R9 | GM and player content is Markdown, rendered safely. | Sanitized HTML. |
+| R10 | Members see notifications about what other members changed in their campaigns since they last looked. | In the app only (no email/push); §4 design notes. |
 
 ## 3. Architecture
 
@@ -173,6 +174,11 @@ comments                               -- R7
   id, campaign_id, game_session_id NULL, schedule_poll_id NULL, author_id, body_md,
   created_at, edited_at NULL           -- deleting removes the row; at most one of the two ids
 
+notifications                          -- R10, one row per recipient
+  id, user_id (recipient), campaign_id, actor_id, kind, and what it points to:
+  game_session_id, schedule_poll_id, poll_id, entry_id, comment_id, page_id (all NULL-able),
+  created_at, updated_at (latest action), seen_at NULL
+
 polls                                  -- R8
   id, campaign_id, game_session_id NULL, question, description_md,
   multiple_choice, closes_at NULL, closed_at NULL, created_by, created_at
@@ -205,6 +211,22 @@ poll_votes
   - Editing matches existing dates to the new ones **by day** in a calendar (a day whose time
     moved keeps its answers) and by exact time in a list. The GM can switch the layout; to a
     calendar only while no day has two times.
+- **Notifications** (M13, decided 2026-11-02; terms in GLOSSARY.md):
+  - Written by `notifications::db::notify` in the transaction that makes the change, one row
+    per *other* current member (so new members never get older ones). Events: scheduling poll
+    opened / decided / cancelled / reopened; poll created / closed by the GM; game session
+    added / moved / cancelled; entry added / edited; comment added; campaign page added /
+    edited; campaign details edited (not accent or banner); GM changed. Not: votes, members
+    joining, or anything that only happens with time (a poll's `closes_at`, a deadline).
+  - While unseen, the same kind of action by the same actor on the same thing updates the row
+    (`updated_at`) instead of adding one; an edit folds into its addition (`Kind::folds_into`).
+  - Opening a page marks what it shows as seen (`notifications::viewed`): a scheduling poll
+    (with its comments), a game session (its entries, comments, polls), the campaign overview
+    (details, campaign comments and polls), a campaign page, the members page (GM changes).
+    Plus "Mark all as seen". The nav count is `CurrentUser.unseen`, counted by the extractor.
+  - Deleting a comment, entry or page deletes its notifications; leaving a campaign deletes
+    yours from it; deleting a campaign deletes all of them. Rows older than 60 days are deleted
+    on the next `notify`.
 - Regular slots (`schedule_patterns`, M7) were removed in M12: nobody used them, and the
   calendar form covers "it depends on the weekday" with one tap per weekday.
 - Deciding a poll (R3) is one DB transaction: set `decided_option_id`, create a `game_session`,
@@ -370,6 +392,9 @@ POST /polls/{id}/close                                 # htmx (GM/admin); (fragm
 POST /markdown/preview                                 # (fragment) for the editor preview tab
 GET  /healthz                                          # "ok <version>"
 
+GET  /notifications                                    # unseen, then the last 20 seen
+PUT  /notifications/seen                               # htmx, "Mark all as seen"; HX-Refresh
+
 GET  /admin                                            # → /admin/users (site admins only, else 404)
 GET  /admin/users, POST /admin/users                   # list, create a user
 PUT  /admin/users/{id}/admin, PUT /admin/users/{id}/active   # htmx, value=1|0; (fragment) the row
@@ -509,6 +534,7 @@ version is worth using.
 | M10 | systemd hardening, backups, deploy script polish | release profile, `cfg` attributes, build scripts | done |
 | M11 | Automated end-to-end tests: HTTP-level tests of the real app, then a few browser tests for the htmx/Alpine flows (see §10.1) | library + binary crate (`src/lib.rs`), `tests/` integration tests, test fixtures and helpers, `reqwest` + cookie store, `scraper` (CSS selectors on HTML), WebDriver from Rust (`thirtyfour`/`fantoccini`) | done |
 | M12 | Calendar layout for scheduling polls (form and voting brush); regular slots removed | (agent-written) | done |
+| M13 | Notifications: what changed in your campaigns since you last looked (nav count, dashboard card, page) | (agent-written) | done |
 
 ### 10.1 M11: end-to-end tests (plan)
 

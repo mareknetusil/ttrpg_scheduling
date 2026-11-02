@@ -10,7 +10,12 @@
                    my_vote_count }: open scheduling polls in those campaigns where voting is open
                    and the user hasn't answered every date; the two counts cover only dates still
                    in the future
-     polls         the same for the other open polls (answered, or voting closed) #}
+     polls         the same for the other open polls (answered, or voting closed)
+     notifications the newest 5 unseen notifications (see notifications/_item.html); the total is
+                   current_user.unseen
+
+   Requests:
+     PUT /notifications/seen   htmx, "Mark all as seen"; answers with HX-Refresh #}
 
 {% block title %}Home · TTRPG Scheduling{% endblock %}
 {% block nav_home %}aria-current="page"{% endblock %}
@@ -41,6 +46,20 @@
         </li>
       {% endfor %}
     </ul>
+  </section>
+{% endif %}
+
+{# What changed since the user last looked; to-dos above, the rest below #}
+{% if notifications %}
+  <section class="card" id="notifications">
+    <h2>New in your campaigns</h2>
+    <ul class="notification-list">
+      {% for n in notifications %}{% include "notifications/_item.html" %}{% endfor %}
+    </ul>
+    <div class="row row--tight notification-actions">
+      <a href="/notifications">All notifications{% if current_user.unseen > notifications|length %} ({{ current_user.unseen }} new){% endif %}</a>
+      <button type="button" class="link-button" id="mark-all-seen" hx-put="/notifications/seen">Mark all as seen</button>
+    </div>
   </section>
 {% endif %}
 

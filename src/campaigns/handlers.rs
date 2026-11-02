@@ -79,16 +79,22 @@ pub async fn update(
         })?;
         return Ok(Html(body).into_response());
     }
-    db::update(&state.db, id, &form).await?;
+    db::update(&state.db, id, &form, user.id).await?;
     Ok(Redirect::to(&format!("/campaigns/{id}")).into_response())
 }
 
 pub async fn show(
     State(state): State<Arc<AppState>>,
-    user: CurrentUser,
+    mut user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
+    crate::notifications::viewed(
+        &state.db,
+        &mut user,
+        crate::notifications::model::Viewing::Campaign(id),
+    )
+    .await?;
     let pages = crate::pages::db::list(&state.db, id).await?;
     let polls = crate::scheduling::db::for_campaign(&state.db, id, user.id).await?;
     let comments = crate::comments::views(&state, id, None, None, &user, &access).await?;
@@ -118,10 +124,16 @@ pub async fn show(
 
 pub async fn members_page(
     State(state): State<Arc<AppState>>,
-    user: CurrentUser,
+    mut user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let (campaign, access) = load_for(&state.db, id, &user).await?;
+    crate::notifications::viewed(
+        &state.db,
+        &mut user,
+        crate::notifications::model::Viewing::Members(id),
+    )
+    .await?;
     render_members(&state, &user, &campaign, &access, None).await
 }
 
@@ -210,7 +222,7 @@ pub async fn change_gm(
         .await?
         .into_response());
     }
-    db::set_gm(&state.db, id, form.user_id).await?;
+    db::set_gm(&state.db, id, form.user_id, user.id).await?;
     Ok(Redirect::to(&format!("/campaigns/{id}/members")).into_response())
 }
 

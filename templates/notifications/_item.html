@@ -1,0 +1,11 @@
+{# One notification, as a list item linking to what it's about. Included by the notifications page
+   and the dashboard card.
+   Context:
+     n   { id, campaign_id, campaign_name, actor_name, text, excerpt?, url, when: When, ago, seen } #}
+<li class="notification{% if not n.seen %} is-unseen{% endif %}" id="notification-{{ n.id }}">
+  <a class="notification__link" href="{{ n.url }}">
+    <span class="notification__text"><strong>{{ n.actor_name }}</strong> {{ n.text }}</span>
+    {% if n.excerpt %}<span class="notification__excerpt">“{{ n.excerpt }}”</span>{% endif %}
+    <span class="muted small">{{ n.campaign_name }} · <time datetime="{{ n.when.iso }}" title="{{ n.when.full }}">{{ n.ago }}</time></span>
+  </a>
+</li>

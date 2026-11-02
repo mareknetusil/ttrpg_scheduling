@@ -1,4 +1,8 @@
 use super::model::{Banner, Campaign, CampaignForm, CampaignSummary, Invite, Member};
+use crate::notifications::{
+    db::{forget_member, notify},
+    model::{Kind, Notice, Target},
+};
 use anyhow::Context;
 use sqlx::sqlite::SqlitePool;
 
@@ -32,7 +36,26 @@ pub async fn create(db: &SqlitePool, form: &CampaignForm, user_id: i64) -> anyho
     Ok(new_id)
 }
 
-pub async fn update(db: &SqlitePool, id: i64, form: &CampaignForm) -> Result<(), sqlx::Error> {
+/// Saves the campaign's details. A change to the name, system, tagline or description (not the
+/// accent) tells the other members (`actor_id` made it).
+pub async fn update(
+    db: &SqlitePool,
+    id: i64,
+    form: &CampaignForm,
+    actor_id: i64,
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let changed = sqlx::query_scalar!(
+        r#"SELECT (name != ? OR system != ? OR tagline != ? OR description_md != ?) AS "changed!: bool"
+           FROM campaigns WHERE id = ?"#,
+        form.name,
+        form.system,
+        form.tagline,
+        form.description_md,
+        id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE campaigns SET name = ?, system = ?, tagline = ?, description_md = ?, accent = ? WHERE id = ?",
         form.name,
@@ -42,9 +65,26 @@ pub async fn update(db: &SqlitePool, id: i64, form: &CampaignForm) -> Result<(),
         form.accent,
         id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    if changed {
+        notify(
+            &mut tx,
+            &campaign_notice(id, actor_id, Kind::CampaignEdited),
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
+}
+
+fn campaign_notice(campaign_id: i64, actor_id: i64, kind: Kind) -> Notice {
+    Notice {
+        campaign_id,
+        actor_id,
+        kind,
+        target: Target::default(),
+    }
 }
 
 pub async fn for_user(db: &SqlitePool, user_id: i64) -> Result<Vec<CampaignSummary>, sqlx::Error> {
@@ -145,29 +185,49 @@ pub async fn delete_invite(
     Ok(result.rows_affected())
 }
 
+/// Removes a member (leaving, or removed by the GM), with their notifications from the campaign.
 pub async fn remove_member(
     db: &SqlitePool,
     campaign_id: i64,
     user_id: i64,
 ) -> Result<u64, sqlx::Error> {
+    let mut tx = db.begin().await?;
     let result = sqlx::query!(
         "DELETE FROM campaign_members WHERE campaign_id = ? AND user_id = ?",
         campaign_id,
         user_id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    forget_member(&mut tx, campaign_id, user_id).await?;
+    tx.commit().await?;
     Ok(result.rows_affected())
 }
 
-pub async fn set_gm(db: &SqlitePool, campaign_id: i64, user_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE campaigns SET gm_user_id = ? WHERE id = ?",
+/// Makes `user_id` the GM and, if that's a change, tells the members (`actor_id` did it).
+pub async fn set_gm(
+    db: &SqlitePool,
+    campaign_id: i64,
+    user_id: i64,
+    actor_id: i64,
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let result = sqlx::query!(
+        "UPDATE campaigns SET gm_user_id = ? WHERE id = ? AND gm_user_id != ?",
         user_id,
-        campaign_id
+        campaign_id,
+        user_id
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    if result.rows_affected() > 0 {
+        notify(
+            &mut tx,
+            &campaign_notice(campaign_id, actor_id, Kind::GmChanged),
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -189,6 +249,11 @@ pub async fn take_gm(db: &SqlitePool, campaign_id: i64, user_id: i64) -> Result<
     )
     .execute(&mut *tx)
     .await?;
+    notify(
+        &mut tx,
+        &campaign_notice(campaign_id, user_id, Kind::GmChanged),
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -202,6 +267,7 @@ pub async fn delete(db: &SqlitePool, campaign_id: i64) -> Result<(), sqlx::Error
         .execute(&mut *tx)
         .await?;
     let statements = [
+        "DELETE FROM notifications WHERE campaign_id = ?",
         "DELETE FROM poll_votes WHERE poll_option_id IN
            (SELECT o.id FROM poll_options AS o JOIN polls AS p ON p.id = o.poll_id WHERE p.campaign_id = ?)",
         "DELETE FROM poll_options WHERE poll_id IN (SELECT id FROM polls WHERE campaign_id = ?)",

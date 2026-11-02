@@ -138,6 +138,15 @@ A GM's question to the members with fixed choices (single or multiple choice), o
 a game session. It isn't a scheduling poll.
 _Avoid_: Survey, vote (for the poll itself)
 
+## Keeping up
+
+**Notification**:
+A note to a member that something changed in one of their campaigns since they last looked
+(e.g. "Gina opened scheduling poll Session 5"). It's caused by another member's action, never
+your own, and only for things that happened after you joined. It stays **unseen** until you
+open the page it points to, or mark all notifications as seen.
+_Avoid_: Alert, activity, news, update
+
 ## Login
 
 **Auth session**:
